@@ -133,7 +133,7 @@ for arg in "$@"; do
   fi
 
   case "$arg" in
-    --report-file|--report-path|--output)
+    --report-file|--report-path|--output|--reporter-json)
       prev="report"
       ;;
   esac
