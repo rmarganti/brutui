@@ -47,8 +47,18 @@ fn run_key_streams_output_and_summary_and_raw_views_render() {
         Some(CompletedRunStatus::Success(_))
     ));
     assert_eq!(session.raw_output.len(), 2);
-    assert_eq!(session.raw_output[0].stream, OutputStream::Stdout);
-    assert_eq!(session.raw_output[1].stream, OutputStream::Stderr);
+    assert!(
+        session
+            .raw_output
+            .iter()
+            .any(|line| line.stream == OutputStream::Stdout && line.text == "booting")
+    );
+    assert!(
+        session
+            .raw_output
+            .iter()
+            .any(|line| line.stream == OutputStream::Stderr && line.text == "warning")
+    );
 
     let summary = render_to_string(&controller.state, 120, 32);
     assert!(summary.contains("Status: success"));

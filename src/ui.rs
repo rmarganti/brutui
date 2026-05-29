@@ -40,6 +40,7 @@ pub struct TerminalSession {
 pub enum UiEventResult {
     Continue,
     Quit,
+    StartupCollectionChosen,
 }
 
 impl TerminalSession {
@@ -77,10 +78,7 @@ pub fn handle_key_event(
     }
 
     let Some(session) = state.session.as_ref() else {
-        return Ok(match event.code {
-            KeyCode::Char('q') | KeyCode::Esc => UiEventResult::Quit,
-            _ => UiEventResult::Continue,
-        });
+        return handle_startup_keys(state, event);
     };
 
     match &session.modal {
@@ -94,6 +92,53 @@ pub fn render(frame: &mut Frame, state: &AppState) {
     match &state.session {
         Some(session) => render_session(frame, session),
         None => render_startup(frame, &state.startup),
+    }
+}
+
+fn handle_startup_keys(state: &mut AppState, event: KeyEvent) -> Result<UiEventResult, StateError> {
+    match &state.startup {
+        StartupState::CollectionPicker(_) => match event.code {
+            KeyCode::Char('q') | KeyCode::Esc => Ok(UiEventResult::Quit),
+            KeyCode::Up | KeyCode::Char('k') => {
+                state.move_collection_picker_previous();
+                Ok(UiEventResult::Continue)
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                state.move_collection_picker_next();
+                Ok(UiEventResult::Continue)
+            }
+            KeyCode::Backspace => {
+                if let StartupState::CollectionPicker(picker) = &state.startup {
+                    let mut query = picker.query.clone();
+                    query.pop();
+                    state.set_collection_picker_query(query);
+                }
+                Ok(UiEventResult::Continue)
+            }
+            KeyCode::Enter => {
+                if let StartupState::CollectionPicker(picker) = &state.startup {
+                    if picker.selected_collection().is_some() {
+                        return Ok(UiEventResult::StartupCollectionChosen);
+                    }
+                }
+                Ok(UiEventResult::Continue)
+            }
+            KeyCode::Char(character) => {
+                if let StartupState::CollectionPicker(picker) = &state.startup {
+                    let mut query = picker.query.clone();
+                    query.push(character);
+                    state.set_collection_picker_query(query);
+                }
+                Ok(UiEventResult::Continue)
+            }
+            _ => Ok(UiEventResult::Continue),
+        },
+        StartupState::Discovering | StartupState::Ready | StartupState::SetupMessage { .. } => {
+            Ok(match event.code {
+                KeyCode::Char('q') | KeyCode::Esc => UiEventResult::Quit,
+                _ => UiEventResult::Continue,
+            })
+        }
     }
 }
 
@@ -151,35 +196,83 @@ fn handle_session_keys(state: &mut AppState, event: KeyEvent) -> Result<UiEventR
 }
 
 fn render_startup(frame: &mut Frame, startup: &StartupState) {
-    let block = Block::default().borders(Borders::ALL).title("Brutui");
-    let message = match startup {
-        StartupState::Discovering => "Discovering Bruno collections...",
-        StartupState::Ready => "Preparing session...",
-        StartupState::SetupMessage { message } => message,
-        StartupState::CollectionPicker(picker) => {
-            let selected = picker
-                .selected_collection()
-                .map(|collection| collection.root.display().to_string())
-                .unwrap_or_else(|| "No matching collections".to_string());
-            return frame.render_widget(
-                Paragraph::new(format!(
-                    "Collection picker placeholder\n\nQuery: {}\nSelected: {}",
-                    picker.query, selected
-                ))
-                .block(block)
-                .alignment(Alignment::Left)
-                .wrap(Wrap { trim: false }),
-                frame.area(),
-            );
+    match startup {
+        StartupState::CollectionPicker(picker) => render_collection_picker(frame, picker),
+        StartupState::Discovering => {
+            render_startup_message(frame, "Discovering Bruno collections...")
         }
-    };
+        StartupState::Ready => render_startup_message(frame, "Preparing session..."),
+        StartupState::SetupMessage { message } => render_startup_message(frame, message),
+    }
+}
 
+fn render_startup_message(frame: &mut Frame, message: &str) {
     frame.render_widget(
         Paragraph::new(message)
-            .block(block)
+            .block(Block::default().borders(Borders::ALL).title("Brutui"))
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true }),
         frame.area(),
+    );
+}
+
+fn render_collection_picker(frame: &mut Frame, picker: &crate::state::CollectionPickerState) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(0),
+            Constraint::Length(3),
+        ])
+        .split(frame.area());
+
+    frame.render_widget(
+        Paragraph::new(format!("Search: {}", picker.query))
+            .block(Block::default().borders(Borders::ALL).title("Brutui"))
+            .wrap(Wrap { trim: false }),
+        chunks[0],
+    );
+
+    let items = if picker.filtered.is_empty() {
+        vec![ListItem::new("No matching collections")]
+    } else {
+        picker
+            .filtered
+            .iter()
+            .enumerate()
+            .map(|(filtered_index, collection_index)| {
+                let collection = &picker.collections[*collection_index];
+                let prefix = if filtered_index == picker.selected_filtered_index {
+                    "> "
+                } else {
+                    "  "
+                };
+                let style = if filtered_index == picker.selected_filtered_index {
+                    Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(Line::styled(
+                    format!("{prefix}{}", collection.root.display()),
+                    style,
+                ))
+            })
+            .collect::<Vec<_>>()
+    };
+
+    frame.render_widget(
+        List::new(items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Collection picker"),
+        ),
+        chunks[1],
+    );
+    frame.render_widget(
+        Paragraph::new("Type to filter • Enter to open • ↑/↓ or j/k to move • q or Esc to quit")
+            .block(Block::default().borders(Borders::ALL))
+            .wrap(Wrap { trim: false }),
+        chunks[2],
     );
 }
 
@@ -680,12 +773,43 @@ mod tests {
             Collection, CollectionFormat, CollectionNode, CollectionNodeId, FolderNode,
             RequestNode, RootNode,
         },
+        discovery::{DiscoveredCollection, DiscoverySource},
         environments::EnvironmentOption,
         metadata::RequestMetadata,
         state::{AppState, ModalState},
     };
 
     use super::{FocusPane, UiEventResult, handle_key_event, render};
+
+    #[test]
+    fn startup_collection_picker_filters_and_selects_with_keyboard() {
+        let mut state = AppState::new();
+        state.show_collection_picker(vec![
+            discovered_collection("/collections/payments"),
+            discovered_collection("/collections/catalog"),
+        ]);
+
+        handle_key_event(&mut state, press(KeyCode::Char('c'))).expect("type c");
+        handle_key_event(&mut state, press(KeyCode::Char('a'))).expect("type a");
+        handle_key_event(&mut state, press(KeyCode::Char('t'))).expect("type t");
+
+        let outcome =
+            handle_key_event(&mut state, press(KeyCode::Enter)).expect("choose collection");
+
+        assert_eq!(outcome, UiEventResult::StartupCollectionChosen);
+        let crate::state::StartupState::CollectionPicker(picker) = &state.startup else {
+            panic!("expected collection picker");
+        };
+        assert_eq!(picker.query, "cat");
+        assert_eq!(picker.filtered.len(), 1);
+        assert_eq!(
+            picker
+                .selected_collection()
+                .expect("selected collection")
+                .root,
+            PathBuf::from("/collections/catalog")
+        );
+    }
 
     #[test]
     fn focused_tree_keys_drive_selection_and_focus() {
@@ -786,6 +910,14 @@ mod tests {
                     metadata_diagnostics: Vec::new(),
                 }),
             ],
+        }
+    }
+
+    fn discovered_collection(path: &str) -> DiscoveredCollection {
+        DiscoveredCollection {
+            root: PathBuf::from(path),
+            format: CollectionFormat::ClassicJson,
+            source: DiscoverySource::ConfiguredDirectory,
         }
     }
 
