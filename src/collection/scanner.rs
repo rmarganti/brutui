@@ -7,6 +7,7 @@ use thiserror::Error;
 use crate::collection::model::{
     Collection, CollectionFormat, CollectionNode, FolderNode, RequestNode, RootNode,
 };
+use crate::metadata::parse_request_file;
 
 const IGNORED_DIRECTORY_NAMES: &[&str] = &[
     ".git",
@@ -118,9 +119,12 @@ fn scan_directory(
     }
 
     for path in child_requests {
+        let parsed = parse_request_file(&path, format.clone());
         nodes.push(CollectionNode::Request(RequestNode {
             relative_path: strip_root(root, &path),
             display_name: file_name(&path),
+            metadata: parsed.metadata,
+            metadata_diagnostics: parsed.diagnostics,
             path,
         }));
     }

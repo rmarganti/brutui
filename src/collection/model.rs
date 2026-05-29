@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use crate::metadata::{MetadataDiagnostic, RequestMetadata};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CollectionFormat {
     ClassicJson,
@@ -79,4 +81,6 @@ pub struct RequestNode {
     pub path: PathBuf,
     pub relative_path: PathBuf,
     pub display_name: String,
+    pub metadata: RequestMetadata,
+    pub metadata_diagnostics: Vec<MetadataDiagnostic>,
 }
