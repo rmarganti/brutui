@@ -1,14 +1,14 @@
 ---
 # brutui-s2xb
 title: Build filesystem-first collection tree scanning
-status: todo
+status: completed
 type: task
 priority: high
 tags:
 - collections
 - tree
 created_at: 2026-05-29T17:28:16.832070Z
-updated_at: 2026-05-29T17:28:16.832070Z
+updated_at: 2026-05-29T17:45:53.250048Z
 parent: brutui-7sjr
 blocked_by:
 - brutui-iblr
@@ -31,3 +31,27 @@ Reference: `.local/prds/1780075033-brutui-rust-tui-prd.md`, user stories 17-25 a
 ## Validation
 
 - Tests verify nested folder/request tree construction, deterministic ordering, root/folder/request node identity, path preservation, and resilience to malformed request files.
+
+
+
+## Implementation Notes
+
+- Added `CollectionNodeId` plus node helper methods in `src/collection/model.rs` so later state/UI work can refer to stable root/folder/request selections without re-deriving identity from display text.
+- Implemented `src/collection/scanner.rs` as a filesystem-first recursive scanner that emits a deterministic preorder tree: root first, then sorted folders depth-first, then sorted request files within each folder.
+- Scanner preserves absolute paths, collection-relative paths, and display names for every folder/request node while staying format-aware for classic `.bru` and OpenCollection YAML request files.
+- Scanner ignores non-runnable collection content that should not appear in the request tree, including collection root markers, collection-local environment directories, and common irrelevant directories like `.git`, `node_modules`, `target`, `build`, and `dist`.
+- Malformed request files remain visible because scanning is path/extension based and does not depend on metadata parsing.
+
+## Verification
+
+- `cargo fmt --all -- --check`
+- `cargo test --all-features`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo build --all-features`
+- `ish check`
+
+## Notes For Follow-on Work
+
+- `Collection::nodes` is now a flat deterministic preorder traversal, which should be straightforward for upcoming tree-selection/state code to render without introducing another traversal layer.
+- The scanner currently excludes the top-level `environments/` subtree from request nodes so environment discovery can own those files independently without polluting the runnable request tree.
+- Request inclusion is intentionally shallow and extension-based; upcoming metadata parsing can decorate request nodes without changing scanner semantics or hiding malformed requests.
