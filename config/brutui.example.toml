@@ -1,0 +1,9 @@
+# Directories that are Bruno collection roots or contain Bruno collections.
+collection_dirs = [
+  "/Users/you/code/apis",
+  "/Users/you/work/bruno-collections",
+]
+
+# Optional explicit Bruno CLI executable path.
+# If omitted, Brutui falls back to BRUTUI_BRU_PATH and then PATH lookup.
+bru_path = "/opt/homebrew/bin/bru"
