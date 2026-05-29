@@ -1,14 +1,14 @@
 ---
 # brutui-7sjr
 title: Collection discovery, scanning, metadata, and environments
-status: todo
+status: completed
 type: epic
 priority: high
 tags:
 - prd
 - epic
 created_at: 2026-05-29T17:28:16.795006Z
-updated_at: 2026-05-29T17:28:16.795006Z
+updated_at: 2026-05-29T18:45:18.979938Z
 parent: brutui-omh0
 ---
 

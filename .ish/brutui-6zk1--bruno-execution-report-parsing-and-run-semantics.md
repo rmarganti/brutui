@@ -1,14 +1,14 @@
 ---
 # brutui-6zk1
 title: Bruno execution, report parsing, and run semantics
-status: todo
+status: completed
 type: epic
 priority: high
 tags:
 - prd
 - epic
 created_at: 2026-05-29T17:28:16.801093Z
-updated_at: 2026-05-29T17:28:16.801093Z
+updated_at: 2026-05-29T18:45:18.989176Z
 parent: brutui-omh0
 ---
 

@@ -1,14 +1,14 @@
 ---
 # brutui-3dxq
 title: Project foundation, configuration, and executable resolution
-status: todo
+status: completed
 type: epic
 priority: high
 tags:
 - prd
 - epic
 created_at: 2026-05-29T17:28:16.787950Z
-updated_at: 2026-05-29T17:28:16.787950Z
+updated_at: 2026-05-29T18:45:18.968548Z
 parent: brutui-omh0
 ---
 

@@ -1,14 +1,14 @@
 ---
 # brutui-dz57
 title: Validation, fixtures, documentation, and release readiness
-status: todo
+status: completed
 type: epic
 priority: high
 tags:
 - prd
 - epic
 created_at: 2026-05-29T17:28:16.811110Z
-updated_at: 2026-05-29T17:28:16.811110Z
+updated_at: 2026-05-29T18:45:19.002463Z
 parent: brutui-omh0
 ---
 

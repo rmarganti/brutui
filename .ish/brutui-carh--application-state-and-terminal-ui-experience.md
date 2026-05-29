@@ -1,14 +1,14 @@
 ---
 # brutui-carh
 title: Application state and terminal UI experience
-status: todo
+status: completed
 type: epic
 priority: high
 tags:
 - prd
 - epic
 created_at: 2026-05-29T17:28:16.806519Z
-updated_at: 2026-05-29T17:28:16.806519Z
+updated_at: 2026-05-29T18:45:18.996024Z
 parent: brutui-omh0
 ---
 
