@@ -5,8 +5,8 @@ use std::fs;
 use serde_json::json;
 
 use support::{
-    FakeBruSpec, copy_fixture_collection, install_fake_bru, report_path, run_command,
-    set_current_dir, set_env_var, temp_workspace,
+    FakeBruSpec, copy_fixture_collection, install_fake_bru, lock_process_state, report_path,
+    run_command, set_current_dir, set_env_var, temp_workspace,
 };
 
 #[test]
@@ -36,6 +36,7 @@ fn fixture_collections_copy_into_isolated_temp_workspaces() {
 
 #[test]
 fn cwd_guard_restores_the_previous_working_directory() {
+    let _lock = lock_process_state();
     let original = std::env::current_dir().expect("original cwd");
     let workspace = temp_workspace();
 
@@ -58,6 +59,7 @@ fn cwd_guard_restores_the_previous_working_directory() {
 
 #[test]
 fn env_var_guard_restores_previous_values() {
+    let _lock = lock_process_state();
     let key = "BRUTUI_TEST_SCOPED_ENV";
     let original = std::env::var_os(key);
 

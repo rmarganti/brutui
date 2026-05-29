@@ -6,10 +6,11 @@ use brutui::config::{
     AppConfig, CONFIG_ENV_VAR, ConfigError, default_config_path, load, load_from_path,
 };
 use brutui::executable::{BRU_PATH_ENV_VAR, BruExecutableError, BruExecutableSource, resolve};
-use support::{FakeBruSpec, install_fake_bru, set_env_var, temp_workspace};
+use support::{FakeBruSpec, install_fake_bru, lock_process_state, set_env_var, temp_workspace};
 
 #[test]
 fn missing_default_config_returns_defaults() {
+    let _lock = lock_process_state();
     let home = temp_workspace();
     let _home = set_env_var("HOME", home.path());
     let _config_override = set_env_var(CONFIG_ENV_VAR, "");
@@ -107,6 +108,7 @@ fn invalid_bru_path_reports_actionable_diagnostics() {
 
 #[test]
 fn executable_resolution_prefers_environment_override() {
+    let _lock = lock_process_state();
     let workspace = temp_workspace();
     let env_bru = install_fake_bru(&workspace, &FakeBruSpec::default());
     let config_bru = workspace.path().join("configured-bru");
@@ -136,6 +138,7 @@ fn executable_resolution_prefers_environment_override() {
 
 #[test]
 fn executable_resolution_prefers_config_over_path_lookup() {
+    let _lock = lock_process_state();
     let workspace = temp_workspace();
     let path_dir = workspace.path().join("path-bin");
     fs::create_dir_all(&path_dir).expect("create path dir");
@@ -168,6 +171,7 @@ fn executable_resolution_prefers_config_over_path_lookup() {
 
 #[test]
 fn executable_resolution_falls_back_to_path() {
+    let _lock = lock_process_state();
     let workspace = temp_workspace();
     let path_dir = workspace.path().join("bin");
     fs::create_dir_all(&path_dir).expect("create bin dir");
@@ -184,6 +188,7 @@ fn executable_resolution_falls_back_to_path() {
 
 #[test]
 fn missing_bru_returns_actionable_error() {
+    let _lock = lock_process_state();
     let workspace = temp_workspace();
     let _env = set_env_var(BRU_PATH_ENV_VAR, "");
     let _path = set_env_var("PATH", workspace.path());

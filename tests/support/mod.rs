@@ -5,13 +5,23 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use serde_json::Value;
 use tempfile::{TempDir, tempdir};
 use walkdir::WalkDir;
 
+static PROCESS_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
 pub fn fixture_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+}
+
+pub fn lock_process_state() -> MutexGuard<'static, ()> {
+    PROCESS_STATE_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("process state lock")
 }
 
 pub fn temp_workspace() -> TempDir {
