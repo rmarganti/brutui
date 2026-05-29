@@ -9,7 +9,7 @@ use brutui::app::AppController;
 use brutui::collection::model::CollectionFormat;
 use brutui::collection::scanner::scan_collection;
 use brutui::environments::discover as discover_environments;
-use brutui::state::{CompletedRunStatus, OutputStream};
+use brutui::state::{CompletedRunStatus, ModalState, OutputStream};
 use brutui::ui::render;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
@@ -142,6 +142,69 @@ fn missing_report_is_shown_as_a_tool_error() {
 }
 
 #[test]
+fn environment_picker_can_be_opened_selected_and_cancelled() {
+    let fixture = support::copy_fixture_collection("classic", "sample-classic");
+    let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
+        .expect("scan classic fixture");
+    let environments = discover_environments(&fixture.root, CollectionFormat::ClassicJson)
+        .expect("discover environments");
+    let workspace = support::temp_workspace();
+    let bru = support::install_fake_bru(&workspace, &support::FakeBruSpec::default());
+    let mut controller =
+        AppController::new_loaded(collection, environments, bru).expect("create controller");
+
+    controller
+        .handle_key_event(press_char('e'))
+        .expect("open env picker");
+    assert!(matches!(
+        controller.state.session.as_ref().expect("session").modal,
+        ModalState::EnvironmentPicker {
+            highlighted_index: 0
+        }
+    ));
+
+    controller
+        .handle_key_event(press_key(KeyCode::Down))
+        .expect("move env highlight");
+    controller
+        .handle_key_event(press_key(KeyCode::Enter))
+        .expect("confirm env");
+    assert_eq!(
+        controller
+            .state
+            .selected_environment()
+            .expect("selected environment")
+            .display_name,
+        "dev"
+    );
+    assert!(matches!(
+        controller.state.session.as_ref().expect("session").modal,
+        ModalState::None
+    ));
+
+    let rendered = render_to_string(&controller.state, 120, 32);
+    assert!(rendered.contains("Environment: dev"));
+    assert!(rendered.contains("Env: dev"));
+
+    controller
+        .handle_key_event(press_char('e'))
+        .expect("reopen env picker");
+    controller
+        .handle_key_event(press_key(KeyCode::Esc))
+        .expect("cancel env picker");
+    assert_eq!(
+        controller
+            .state
+            .selected_environment()
+            .expect("selected environment")
+            .display_name,
+        "dev"
+    );
+
+    fixture.assert_unchanged();
+}
+
+#[test]
 fn active_run_can_be_cancelled_and_rejects_overlapping_run_requests() {
     let fixture = support::copy_fixture_collection("classic", "sample-classic");
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
@@ -264,7 +327,11 @@ fn render_to_string(state: &brutui::state::AppState, width: u16, height: u16) ->
 }
 
 fn press_char(character: char) -> KeyEvent {
-    KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE)
+    press_key(KeyCode::Char(character))
+}
+
+fn press_key(code: KeyCode) -> KeyEvent {
+    KeyEvent::new(code, KeyModifiers::NONE)
 }
 
 fn write_executable_script(workspace: &TempDir, name: &str, script: &str) -> PathBuf {

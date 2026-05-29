@@ -288,7 +288,7 @@ fn render_session(frame: &mut Frame, session: &SessionState) {
         .split(root_chunks[0]);
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(9), Constraint::Min(0)])
+        .constraints([Constraint::Length(12), Constraint::Min(0)])
         .split(content_chunks[1]);
 
     render_collection_tree(frame, content_chunks[0], session);
@@ -353,6 +353,10 @@ fn render_details_pane(frame: &mut Frame, area: Rect, session: &SessionState) {
             )]),
             Line::from(format!("Name: {}", node.display_name())),
             Line::from(format!("Path: {}", node.path().display())),
+            Line::from(format!(
+                "Environment: {}",
+                selected_environment_label(session)
+            )),
         ];
 
         if let Some(relative_path) = node.relative_path() {
@@ -363,17 +367,39 @@ fn render_details_pane(frame: &mut Frame, area: Rect, session: &SessionState) {
             if let Some(name) = &request.metadata.name {
                 lines.push(Line::from(format!("Request name: {name}")));
             }
+
+            let mut method_url_parts = Vec::new();
             if let Some(method) = &request.metadata.method {
-                lines.push(Line::from(format!("Method: {method}")));
+                method_url_parts.push(format!("Method: {method}"));
             }
             if let Some(url) = &request.metadata.url {
-                lines.push(Line::from(format!("URL: {url}")));
+                method_url_parts.push(format!("URL: {url}"));
+            }
+            if !method_url_parts.is_empty() {
+                lines.push(Line::from(method_url_parts.join("  •  ")));
+            }
+
+            if !request.metadata.tags.is_empty() {
+                lines.push(Line::from(format!(
+                    "Tags (read-only): {}",
+                    request.metadata.tags.join(", ")
+                )));
+            }
+            if !request.metadata_diagnostics.is_empty() {
+                lines.push(Line::from(format!(
+                    "Metadata notes: {}",
+                    request
+                        .metadata_diagnostics
+                        .iter()
+                        .map(|diagnostic| diagnostic.message.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" | ")
+                )));
             }
         }
 
-        lines.push(Line::default());
         lines.push(Line::from(
-            "Run with r • cancel with c • switch result views with 1/2/3",
+            "e environment • r run • c cancel • 1/2/3 result views",
         ));
         lines
     } else {
@@ -413,11 +439,7 @@ fn render_output_pane(frame: &mut Frame, area: Rect, session: &SessionState) {
 }
 
 fn render_footer(frame: &mut Frame, area: Rect, session: &SessionState) {
-    let environment = session
-        .environments
-        .get(session.selected_environment_index)
-        .map(|environment| environment.display_name.as_str())
-        .unwrap_or("unknown");
+    let environment = selected_environment_label(session);
     let run_state = match &session.run {
         crate::state::RunState::Running(active) if active.cancellation_requested => "cancelling",
         crate::state::RunState::Running(_) => "running",
@@ -430,7 +452,7 @@ fn render_footer(frame: &mut Frame, area: Rect, session: &SessionState) {
         Span::raw(format!("Env: {environment}")),
         Span::raw("  •  "),
         Span::raw(format!("Run: {run_state}")),
-        Span::raw("  •  r run  c cancel  1 summary  2 failures  3 raw  ? help  q quit"),
+        Span::raw("  •  e env  r run  c cancel  1 summary  2 failures  3 raw  ? help  q quit"),
     ]));
 
     frame.render_widget(footer, area);
@@ -448,6 +470,7 @@ fn render_modal(frame: &mut Frame, session: &SessionState) {
                     Line::default(),
                     Line::from("↑/k, ↓/j  Move selection in the collection tree"),
                     Line::from("Tab        Cycle focus between tree, details, and output"),
+                    Line::from("e          Open the environment picker"),
                     Line::from("r          Run the selected root, folder, or request"),
                     Line::from("c          Cancel the active Bruno run"),
                     Line::from("1/2/3      Show summary, failures, or raw output"),
@@ -468,24 +491,39 @@ fn render_modal(frame: &mut Frame, session: &SessionState) {
                 .iter()
                 .enumerate()
                 .map(|(index, environment)| {
-                    let prefix = if index == *highlighted_index {
-                        "> "
+                    let highlighted = index == *highlighted_index;
+                    let selected = index == session.selected_environment_index;
+                    let prefix = if highlighted { "> " } else { "  " };
+                    let selected_suffix = if selected { " (current)" } else { "" };
+                    let style = if highlighted {
+                        Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
                     } else {
-                        "  "
+                        Style::default()
                     };
-                    ListItem::new(format!("{prefix}{}", environment.display_name))
+                    ListItem::new(Line::styled(
+                        format!("{prefix}{}{}", environment.display_name, selected_suffix),
+                        style,
+                    ))
                 })
                 .collect::<Vec<_>>();
             frame.render_widget(
                 List::new(items).block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title("Environment picker"),
+                        .title("Environment picker • Enter choose • Esc cancel"),
                 ),
                 area,
             );
         }
     }
+}
+
+fn selected_environment_label(session: &SessionState) -> &str {
+    session
+        .environments
+        .get(session.selected_environment_index)
+        .map(|environment| environment.display_name.as_str())
+        .unwrap_or("unknown")
 }
 
 fn render_summary_lines(session: &SessionState) -> Vec<Line<'static>> {
@@ -775,7 +813,7 @@ mod tests {
         },
         discovery::{DiscoveredCollection, DiscoverySource},
         environments::EnvironmentOption,
-        metadata::RequestMetadata,
+        metadata::{MetadataDiagnostic, RequestMetadata},
         state::{AppState, ModalState},
     };
 
@@ -880,6 +918,28 @@ mod tests {
         }
     }
 
+    #[test]
+    fn details_pane_renders_request_metadata_tags_and_diagnostics() {
+        let backend = TestBackend::new(120, 36);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        let mut state = loaded_state();
+        state.session.as_mut().expect("session").selected_node =
+            CollectionNodeId::Request(PathBuf::from("users/list.bru"));
+
+        terminal
+            .draw(|frame| render(frame, &state))
+            .expect("render UI");
+
+        let rendered = buffer_string(terminal.backend().buffer());
+        assert!(rendered.contains("Environment: No environment"));
+        assert!(rendered.contains("Request name: List users"));
+        assert!(rendered.contains("Method: GET"));
+        assert!(rendered.contains("URL: https://example.com/users"));
+        assert!(rendered.contains("Tags (read-only): smoke, team:platform"));
+        assert!(rendered.contains("Metadata notes:"));
+        assert!(rendered.contains("best-effort parse kept the request runnable"));
+    }
+
     fn loaded_state() -> AppState {
         let mut state = AppState::new();
         state
@@ -906,8 +966,16 @@ mod tests {
                     path: PathBuf::from("/collections/demo/users/list.bru"),
                     relative_path: PathBuf::from("users/list.bru"),
                     display_name: "list.bru".to_string(),
-                    metadata: RequestMetadata::default(),
-                    metadata_diagnostics: Vec::new(),
+                    metadata: RequestMetadata {
+                        name: Some("List users".to_string()),
+                        method: Some("GET".to_string()),
+                        url: Some("https://example.com/users".to_string()),
+                        tags: vec!["smoke".to_string(), "team:platform".to_string()],
+                        source_path: Some(PathBuf::from("/collections/demo/users/list.bru")),
+                    },
+                    metadata_diagnostics: vec![MetadataDiagnostic {
+                        message: "best-effort parse kept the request runnable".to_string(),
+                    }],
                 }),
             ],
         }

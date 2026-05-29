@@ -214,6 +214,10 @@ impl AppController {
                     self.cancel_active_run()?;
                     return Ok(UiEventResult::Continue);
                 }
+                KeyCode::Char('e') => {
+                    self.state.open_environment_picker()?;
+                    return Ok(UiEventResult::Continue);
+                }
                 KeyCode::Char('1') => {
                     self.state
                         .set_result_view(crate::state::ResultView::Summary)?;
