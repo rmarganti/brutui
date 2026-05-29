@@ -1,0 +1,16 @@
+meta {
+  name: List Users
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/users
+  body: none
+  auth: inherit
+}
+
+tags {
+  team: platform
+  smoke: true
+}

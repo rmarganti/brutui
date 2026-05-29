@@ -1,0 +1,3 @@
+name: dev
+values:
+  baseUrl: https://dev.example.com

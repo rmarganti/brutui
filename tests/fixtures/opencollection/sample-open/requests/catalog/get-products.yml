@@ -1,0 +1,6 @@
+name: Get Products
+method: GET
+url: "{{baseUrl}}/products"
+tags:
+  - catalog
+  - smoke
