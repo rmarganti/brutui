@@ -8,4 +8,5 @@ pub mod executable;
 pub mod metadata;
 pub mod report;
 pub mod runner;
+pub mod state;
 pub mod ui;
