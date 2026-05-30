@@ -1,7 +1,7 @@
 ---
 # brutui-0f8d
 title: Split UI module into input rendering and presentation text
-status: todo
+status: completed
 type: task
 priority: high
 tags:
@@ -9,7 +9,7 @@ tags:
 - architecture
 - refactor
 created_at: 2026-05-30T17:23:24.480800Z
-updated_at: 2026-05-30T17:24:20.619629Z
+updated_at: 2026-05-30T17:33:21.159929Z
 parent: brutui-hrnz
 blocking:
 - brutui-ovb3
@@ -41,6 +41,19 @@ Refactor without changing behavior:
 ## Verification
 
 - No behavior changes to startup picker, session key handling, help/environment modals, run-result text, or render smoke behavior.
+- `cargo fmt --all -- --check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all-targets --all-features`
+- `ish check`
+
+## Implementation Notes
+
+- Replaced the monolithic `src/ui.rs` module with `src/ui/mod.rs` plus focused `input`, `render`, `text`, and `terminal` submodules so key handling, rendering, presentation text, and terminal lifecycle each have a smaller seam.
+- Kept the external UI API stable by re-exporting `ui::render`, `ui::handle_key_event`, `ui::current_tab_text`, `ui::TerminalSession`, and `ui::AppTerminal` from the new module root.
+- Preserved the existing integration-style UI tests under `src/ui/mod.rs`, which keeps coverage for startup picker behavior, focus/key handling, modal behavior, and render smoke checks while avoiding churn in higher-level callers.
+
+## Verification
+
 - `cargo fmt --all -- --check`
 - `cargo clippy --all-targets --all-features -- -D warnings`
 - `cargo test --all-targets --all-features`
