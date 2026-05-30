@@ -17,7 +17,7 @@ use ratatui::{
 use crate::{
     collection::model::{CollectionNode, CollectionNodeId},
     state::{
-        AppState, CompletedRunStatus, ModalState, OutputLine, OutputStream, ResultView, RunState,
+        AppState, CompletedRunStatus, ModalState, OutputLine, OutputStream, ResponseTab, RunState,
         SessionState, StartupState, StateError,
     },
 };
@@ -399,7 +399,7 @@ fn render_details_pane(frame: &mut Frame, area: Rect, session: &SessionState) {
         }
 
         lines.push(Line::from(
-            "e environment • r run • c cancel • 1/2/3 result views",
+            "e environment • r run • c cancel • 1 body • 2 headers • 3 tests • [/] results • y copy",
         ));
         lines
     } else {
@@ -418,21 +418,30 @@ fn render_details_pane(frame: &mut Frame, area: Rect, session: &SessionState) {
 }
 
 fn render_output_pane(frame: &mut Frame, area: Rect, session: &SessionState) {
-    let title = match session.result_view {
-        ResultView::Summary => "Output & results (summary)",
-        ResultView::Failures => "Output & results (failures)",
-        ResultView::RawOutput => "Output & results (raw output)",
+    let result_count = session.response_result_count();
+    let result_position = if result_count == 0 {
+        "no result".to_string()
+    } else {
+        format!(
+            "result {}/{}",
+            session.selected_result_index + 1,
+            result_count
+        )
     };
-
-    let lines = match session.result_view {
-        ResultView::Summary => render_summary_lines(session),
-        ResultView::Failures => render_failure_lines(session),
-        ResultView::RawOutput => render_raw_output_lines(session),
+    let tab = match session.response_tab {
+        ResponseTab::Body => "Body",
+        ResponseTab::Headers => "Headers",
+        ResponseTab::Tests => "Tests",
     };
+    let title = format!("Output: Response viewer ({tab}, {result_position})");
+    let lines = current_tab_text(session)
+        .lines()
+        .map(|line| Line::from(line.to_string()))
+        .collect::<Vec<_>>();
 
     frame.render_widget(
         Paragraph::new(lines)
-            .block(focused_block(title, session.focus == FocusPane::Output))
+            .block(focused_block(&title, session.focus == FocusPane::Output))
             .wrap(Wrap { trim: false }),
         area,
     );
@@ -452,7 +461,9 @@ fn render_footer(frame: &mut Frame, area: Rect, session: &SessionState) {
         Span::raw(format!("Env: {environment}")),
         Span::raw("  •  "),
         Span::raw(format!("Run: {run_state}")),
-        Span::raw("  •  e env  r run  c cancel  1 summary  2 failures  3 raw  ? help  q quit"),
+        Span::raw(
+            "  •  e env  r run  c cancel  1 body  2 headers  3 tests  [/] result  y copy  ? help  q quit",
+        ),
     ]));
 
     frame.render_widget(footer, area);
@@ -473,7 +484,9 @@ fn render_modal(frame: &mut Frame, session: &SessionState) {
                     Line::from("e          Open the environment picker"),
                     Line::from("r          Run the selected root, folder, or request"),
                     Line::from("c          Cancel the active Bruno run"),
-                    Line::from("1/2/3      Show summary, failures, or raw output"),
+                    Line::from("1/2/3      Show response body, headers, or tests"),
+                    Line::from("[/]        Move to previous/next request result"),
+                    Line::from("y          Copy the current response tab"),
                     Line::from("?          Toggle this help overlay"),
                     Line::from("Esc        Close modal"),
                     Line::from("q          Quit Brutui"),
@@ -526,202 +539,266 @@ fn selected_environment_label(session: &SessionState) -> &str {
         .unwrap_or("unknown")
 }
 
-fn render_summary_lines(session: &SessionState) -> Vec<Line<'static>> {
+pub fn current_tab_text(session: &SessionState) -> String {
     if let RunState::Running(active) = &session.run {
-        return vec![
-            Line::from(format!(
-                "Run in progress: {}",
-                selected_node_label(&active.target)
-            )),
-            Line::from(if active.cancellation_requested {
-                "Cancellation requested; waiting for Bruno to exit."
-            } else {
-                "Streaming live output below in raw view (press 3)."
-            }),
-        ];
+        return if active.cancellation_requested {
+            "Cancellation requested; waiting for Bruno to exit.".to_string()
+        } else {
+            let mut text = format!("Run in progress: {}", selected_node_label(&active.target));
+            if !session.raw_output.is_empty() {
+                text.push_str("\n\n");
+                text.push_str(&raw_output_text(&session.raw_output));
+            }
+            text
+        };
     }
 
-    match &session.completed_run {
-        Some(run) => {
-            let mut lines = vec![
-                Line::from(format!(
-                    "Last run target: {}",
-                    selected_node_label(&run.target)
-                )),
-                Line::from(format!("Status: {}", completed_status_label(&run.status))),
-                Line::from(format!("Exit code: {}", display_exit_code(run.exit_code))),
-                Line::from(format!("Report: {}", run.report_path.display())),
-                Line::default(),
-            ];
-
-            match &run.status {
-                CompletedRunStatus::Success(report) | CompletedRunStatus::FailedTests(report) => {
-                    lines.extend([
-                        Line::from(format!(
-                            "Requests: {} total, {} passed, {} failed",
-                            report.summary.total_requests,
-                            report.summary.passed_requests,
-                            report.summary.failed_requests
-                        )),
-                        Line::from(format!(
-                            "Tests: {} total, {} passed, {} failed",
-                            report.summary.total_tests,
-                            report.summary.passed_tests,
-                            report.summary.failed_tests
-                        )),
-                        Line::from(format!(
-                            "Assertions: {} total, {} passed, {} failed",
-                            report.summary.total_assertions,
-                            report.summary.passed_assertions,
-                            report.summary.failed_assertions
-                        )),
-                        Line::from(format!("Errors: {}", report.summary.error_count)),
-                    ]);
-
-                    if !report.diagnostics.is_empty() {
-                        lines.push(Line::default());
-                        lines.push(Line::from("Report diagnostics:"));
-                        for diagnostic in &report.diagnostics {
-                            lines.push(Line::from(format!(
-                                "- {}: {}",
-                                diagnostic.path, diagnostic.message
-                            )));
-                        }
-                    }
-                }
+    let Some(request) = session.selected_response_result() else {
+        return match &session.completed_run {
+            Some(run) => match &run.status {
                 CompletedRunStatus::Cancelled => {
-                    lines.push(Line::from("Run was cancelled before Bruno completed."));
+                    "Status: cancelled\nRun was cancelled.".to_string()
                 }
                 CompletedRunStatus::ToolError(error) => {
-                    lines.push(Line::from(format!("Tool error: {}", error.message)));
+                    format!(
+                        "Status: tool error\nExecution/tool error: {}",
+                        error.message
+                    )
                 }
-            }
-
-            lines
-        }
-        None => vec![
-            Line::from("No Bruno run started yet."),
-            Line::from("Press r on the selected node to start a run."),
-        ],
-    }
-}
-
-fn render_failure_lines(session: &SessionState) -> Vec<Line<'static>> {
-    match &session.completed_run {
-        Some(run) => match &run.status {
-            CompletedRunStatus::Success(_) => vec![
-                Line::from(format!("Status: {}", completed_status_label(&run.status))),
-                Line::default(),
-                Line::from("No failed requests, tests, assertions, or errors."),
-            ],
-            CompletedRunStatus::FailedTests(report) => {
-                let mut lines = vec![
-                    Line::from(format!("Status: {}", completed_status_label(&run.status))),
-                    Line::from(format!("Report: {}", run.report_path.display())),
-                    Line::default(),
-                ];
-                for request in &report.requests {
-                    let has_failures = !request.failed_tests.is_empty()
-                        || !request.failed_assertions.is_empty()
-                        || !request.errors.is_empty()
-                        || matches!(
-                            request.status.as_deref(),
-                            Some("failed" | "failure" | "error")
+                CompletedRunStatus::Success(report) | CompletedRunStatus::FailedTests(report) => {
+                    let mut text = completed_run_summary_text(run);
+                    if report.requests.is_empty() {
+                        text.push_str(
+                            "\nThe Bruno report did not include request/response results.",
                         );
-                    if !has_failures {
-                        continue;
+                    } else {
+                        text.push_str("\nNo response selected.");
                     }
-
-                    let request_name = request
-                        .name
-                        .as_deref()
-                        .or(request.url.as_deref())
-                        .unwrap_or("Unnamed request");
-                    lines.push(Line::from(format!("Request: {request_name}")));
-                    if let Some(method) = &request.method {
-                        lines.push(Line::from(format!("  Method: {method}")));
-                    }
-                    if let Some(url) = &request.url {
-                        lines.push(Line::from(format!("  URL: {url}")));
-                    }
-                    for failed_test in &request.failed_tests {
-                        lines.push(Line::from(format!(
-                            "  Failed test: {}{}",
-                            failed_test.name.as_deref().unwrap_or("unnamed"),
-                            failed_test
-                                .message
-                                .as_deref()
-                                .map(|message| format!(" — {message}"))
-                                .unwrap_or_default()
-                        )));
-                    }
-                    for assertion in &request.failed_assertions {
-                        lines.push(Line::from(format!(
-                            "  Failed assertion: {}{}",
-                            assertion.name.as_deref().unwrap_or("unnamed"),
-                            assertion
-                                .message
-                                .as_deref()
-                                .map(|message| format!(" — {message}"))
-                                .unwrap_or_default()
-                        )));
-                        if assertion.expected.is_some() || assertion.actual.is_some() {
-                            lines.push(Line::from(format!(
-                                "    expected: {} • actual: {}",
-                                assertion.expected.as_deref().unwrap_or("unknown"),
-                                assertion.actual.as_deref().unwrap_or("unknown")
-                            )));
-                        }
-                    }
-                    for error in &request.errors {
-                        let code = error.code.as_deref().unwrap_or("error");
-                        let message = error.message.as_deref().unwrap_or("no details");
-                        lines.push(Line::from(format!("  Error [{code}]: {message}")));
-                    }
-                    lines.push(Line::default());
+                    text
                 }
-
-                if lines.is_empty() {
-                    vec![Line::from(
-                        "No request-level failure details were present in the report.",
-                    )]
-                } else {
-                    lines
-                }
+            },
+            None => {
+                "No Bruno run started yet. Press r on the selected node to start a run.".to_string()
             }
-            CompletedRunStatus::Cancelled => vec![Line::from("Run was cancelled.")],
-            CompletedRunStatus::ToolError(error) => vec![Line::from(format!(
-                "Execution/tool error: {}",
-                error.message
-            ))],
-        },
-        None => vec![Line::from("No completed run is available yet.")],
+        };
+    };
+
+    let mut text = session
+        .completed_run
+        .as_ref()
+        .map(completed_run_summary_text)
+        .unwrap_or_default();
+    if !text.is_empty() {
+        text.push_str("\n\n");
+    }
+    if matches!(session.response_tab, ResponseTab::Tests) && !session.raw_output.is_empty() {
+        text.push_str("Raw output:\n");
+        text.push_str(&raw_output_text(&session.raw_output));
+        text.push_str("\n\n");
+    }
+    text.push_str(&match session.response_tab {
+        ResponseTab::Body => response_body_text(request),
+        ResponseTab::Headers => response_headers_text(request),
+        ResponseTab::Tests => response_tests_text(request),
+    });
+    text
+}
+
+fn completed_run_summary_text(run: &crate::state::CompletedRun) -> String {
+    let mut lines = vec![
+        format!("Status: {}", completed_status_label(&run.status)),
+        format!("Exit code: {}", display_exit_code(run.exit_code)),
+        format!("Report: {}", run.report_path.display()),
+    ];
+    if let CompletedRunStatus::Success(report) | CompletedRunStatus::FailedTests(report) =
+        &run.status
+    {
+        lines.push(format!(
+            "Requests: {} total, {} passed, {} failed",
+            report.summary.total_requests,
+            report.summary.passed_requests,
+            report.summary.failed_requests
+        ));
+        lines.push(format!(
+            "Tests: {} total, {} passed, {} failed",
+            report.summary.total_tests, report.summary.passed_tests, report.summary.failed_tests
+        ));
+        lines.push(format!(
+            "Assertions: {} total, {} passed, {} failed",
+            report.summary.total_assertions,
+            report.summary.passed_assertions,
+            report.summary.failed_assertions
+        ));
+    }
+    lines.join("\n")
+}
+
+fn response_body_text(request: &crate::report::RequestResult) -> String {
+    let mut lines = response_heading(request);
+    lines.push(String::new());
+    lines.push(
+        request
+            .response_body
+            .clone()
+            .unwrap_or_else(|| "No response body captured by bru --reporter-json.".to_string()),
+    );
+    lines.join("\n")
+}
+
+fn response_headers_text(request: &crate::report::RequestResult) -> String {
+    let mut lines = response_heading(request);
+    if !request.failed_tests.is_empty()
+        || !request.failed_assertions.is_empty()
+        || !request.errors.is_empty()
+    {
+        lines.push(String::new());
+        lines.push("Failure details:".to_string());
+        append_failure_lines(&mut lines, request);
+    }
+    lines.push(String::new());
+    lines.push("Response headers:".to_string());
+    if request.response_headers.is_empty() {
+        lines.push("  No response headers captured.".to_string());
+    } else {
+        for header in &request.response_headers {
+            lines.push(format!("  {}: {}", header.name, header.value));
+        }
+    }
+    lines.push(String::new());
+    lines.push("Request headers:".to_string());
+    if request.request_headers.is_empty() {
+        lines.push("  No request headers captured.".to_string());
+    } else {
+        for header in &request.request_headers {
+            lines.push(format!("  {}: {}", header.name, header.value));
+        }
+    }
+    lines.join("\n")
+}
+
+fn response_tests_text(request: &crate::report::RequestResult) -> String {
+    let mut lines = response_heading(request);
+    lines.push(String::new());
+    if request.tests.is_empty()
+        && request.failed_tests.is_empty()
+        && request.failed_assertions.is_empty()
+        && request.errors.is_empty()
+    {
+        lines.push("No tests, assertions, or errors captured.".to_string());
+    }
+    for test in &request.tests {
+        lines.push(format!(
+            "{} {}{}",
+            status_icon(test.status.as_deref()),
+            test.name.as_deref().unwrap_or("unnamed test"),
+            test.message
+                .as_deref()
+                .map(|message| format!(" — {message}"))
+                .unwrap_or_default()
+        ));
+    }
+    for failed_test in &request.failed_tests {
+        lines.push(format!(
+            "✗ Failed test: {}{}",
+            failed_test.name.as_deref().unwrap_or("unnamed"),
+            failed_test
+                .message
+                .as_deref()
+                .map(|message| format!(" — {message}"))
+                .unwrap_or_default()
+        ));
+    }
+    for assertion in &request.failed_assertions {
+        lines.push(format!(
+            "✗ assertion {}{}",
+            assertion.name.as_deref().unwrap_or("unnamed"),
+            assertion
+                .message
+                .as_deref()
+                .map(|message| format!(" — {message}"))
+                .unwrap_or_default()
+        ));
+    }
+    for error in &request.errors {
+        lines.push(format!(
+            "✗ error [{}]: {}",
+            error.code.as_deref().unwrap_or("error"),
+            error.message.as_deref().unwrap_or("no details")
+        ));
+    }
+    lines.join("\n")
+}
+
+fn append_failure_lines(lines: &mut Vec<String>, request: &crate::report::RequestResult) {
+    for failed_test in &request.failed_tests {
+        lines.push(format!(
+            "Failed test: {}{}",
+            failed_test.name.as_deref().unwrap_or("unnamed"),
+            failed_test
+                .message
+                .as_deref()
+                .map(|message| format!(" — {message}"))
+                .unwrap_or_default()
+        ));
+    }
+    for assertion in &request.failed_assertions {
+        lines.push(format!(
+            "Failed assertion: {}{}",
+            assertion.name.as_deref().unwrap_or("unnamed"),
+            assertion
+                .message
+                .as_deref()
+                .map(|message| format!(" — {message}"))
+                .unwrap_or_default()
+        ));
+        if assertion.expected.is_some() || assertion.actual.is_some() {
+            lines.push(format!(
+                "expected: {} • actual: {}",
+                assertion.expected.as_deref().unwrap_or("unknown"),
+                assertion.actual.as_deref().unwrap_or("unknown")
+            ));
+        }
     }
 }
 
-fn render_raw_output_lines(session: &SessionState) -> Vec<Line<'static>> {
-    let lines = render_output_lines(&session.raw_output);
-    if !lines.is_empty() {
-        return lines;
+fn response_heading(request: &crate::report::RequestResult) -> Vec<String> {
+    let label = request
+        .url
+        .as_deref()
+        .or(request.name.as_deref())
+        .unwrap_or("Unnamed request");
+    let mut lines = vec![
+        format!("Request: {label}"),
+        format!("{} {label}", request.method.as_deref().unwrap_or("REQUEST")),
+    ];
+    let status = request
+        .status_code
+        .map(|code| code.to_string())
+        .or_else(|| request.status.clone())
+        .unwrap_or_else(|| "unknown".to_string());
+    let mut meta = format!("Status: {status}");
+    if let Some(text) = &request.status_text {
+        meta.push_str(&format!(" {text}"));
     }
+    if let Some(duration) = request.duration_ms {
+        meta.push_str(&format!(" • {duration} ms"));
+    }
+    if let Some(size) = request.size_bytes {
+        meta.push_str(&format!(" • {size} B"));
+    }
+    lines.push(meta);
+    lines
+}
 
-    match &session.completed_run {
-        Some(run) => vec![
-            Line::from(format!(
-                "Last run target: {}",
-                selected_node_label(&run.target)
-            )),
-            Line::from(format!("Report: {}", run.report_path.display())),
-            Line::from("No stdout/stderr output was captured for this run."),
-        ],
-        None => vec![
-            Line::from("No Bruno run started yet."),
-            Line::from("Raw stdout/stderr will appear here while a run is active."),
-        ],
+fn status_icon(status: Option<&str>) -> &'static str {
+    match status {
+        Some("passed" | "pass" | "success" | "ok") => "✓",
+        Some("skipped" | "skip") => "-",
+        _ => "✗",
     }
 }
 
-fn render_output_lines(output: &[OutputLine]) -> Vec<Line<'static>> {
+fn raw_output_text(output: &[OutputLine]) -> String {
     output
         .iter()
         .map(|line| {
@@ -729,9 +806,10 @@ fn render_output_lines(output: &[OutputLine]) -> Vec<Line<'static>> {
                 OutputStream::Stdout => "stdout",
                 OutputStream::Stderr => "stderr",
             };
-            Line::from(format!("[{stream}] {}", line.text))
+            format!("[{stream}] {}", line.text)
         })
-        .collect()
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn selected_node_label(node: &CollectionNodeId) -> &'static str {

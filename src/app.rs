@@ -47,6 +47,8 @@ pub enum AppControllerError {
     RunCommandBuild(#[from] RunCommandBuildError),
     #[error(transparent)]
     RunStart(#[from] RunStartError),
+    #[error("failed to copy response tab to clipboard: {0}")]
+    Clipboard(String),
     #[error(transparent)]
     RunCancel(#[from] RunCancelError),
 }
@@ -220,17 +222,29 @@ impl AppController {
                 }
                 KeyCode::Char('1') => {
                     self.state
-                        .set_result_view(crate::state::ResultView::Summary)?;
+                        .set_response_tab(crate::state::ResponseTab::Body)?;
                     return Ok(UiEventResult::Continue);
                 }
                 KeyCode::Char('2') => {
                     self.state
-                        .set_result_view(crate::state::ResultView::Failures)?;
+                        .set_response_tab(crate::state::ResponseTab::Headers)?;
                     return Ok(UiEventResult::Continue);
                 }
                 KeyCode::Char('3') => {
                     self.state
-                        .set_result_view(crate::state::ResultView::RawOutput)?;
+                        .set_response_tab(crate::state::ResponseTab::Tests)?;
+                    return Ok(UiEventResult::Continue);
+                }
+                KeyCode::Char('[') => {
+                    self.state.select_previous_result()?;
+                    return Ok(UiEventResult::Continue);
+                }
+                KeyCode::Char(']') => {
+                    self.state.select_next_result()?;
+                    return Ok(UiEventResult::Continue);
+                }
+                KeyCode::Char('y') => {
+                    self.copy_current_response_tab()?;
                     return Ok(UiEventResult::Continue);
                 }
                 _ => {}
@@ -270,7 +284,7 @@ impl AppController {
             self.state
                 .append_stderr("Run already active; cancel it before starting another run.")?;
             self.state
-                .set_result_view(crate::state::ResultView::RawOutput)?;
+                .set_response_tab(crate::state::ResponseTab::Body)?;
             return Ok(());
         }
 
@@ -283,6 +297,25 @@ impl AppController {
         Ok(())
     }
 
+    fn copy_current_response_tab(&mut self) -> Result<(), AppControllerError> {
+        let text = {
+            let session = self
+                .state
+                .session
+                .as_ref()
+                .ok_or(StateError::NoCollectionLoaded)?;
+            crate::ui::current_tab_text(session)
+        };
+        match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(text)) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.state
+                    .append_stderr(format!("Failed to copy response tab: {error}"))?;
+                Ok(())
+            }
+        }
+    }
+
     fn cancel_active_run(&mut self) -> Result<(), AppControllerError> {
         if !matches!(
             self.state.session.as_ref().map(|session| &session.run),
@@ -290,7 +323,7 @@ impl AppController {
         ) {
             self.state.append_stderr("No active run to cancel.")?;
             self.state
-                .set_result_view(crate::state::ResultView::RawOutput)?;
+                .set_response_tab(crate::state::ResponseTab::Body)?;
             return Ok(());
         }
 

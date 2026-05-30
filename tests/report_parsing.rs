@@ -179,6 +179,102 @@ fn missing_optional_fields_and_partial_summary_are_derived_defensively() {
 }
 
 #[test]
+fn parses_bruno_iteration_report_format() {
+    let report = parse_report_str(
+        &serde_json::to_string(&json!([
+            {
+                "iterationIndex": 0,
+                "summary": {
+                    "totalRequests": 1,
+                    "passedRequests": 1,
+                    "failedRequests": 0,
+                    "errorRequests": 0,
+                    "totalTests": 1,
+                    "passedTests": 1,
+                    "failedTests": 0,
+                    "totalPreRequestTests": 1,
+                    "passedPreRequestTests": 1,
+                    "failedPreRequestTests": 0,
+                    "totalAssertions": 1,
+                    "passedAssertions": 1,
+                    "failedAssertions": 0
+                },
+                "results": [
+                    {
+                        "test": {"filename": "Morty Rick.yml"},
+                        "request": {
+                            "method": "GET",
+                            "url": "https://rickandmortyapi.com/api/character/231"
+                        },
+                        "response": {"status": 200, "statusText": "OK"},
+                        "status": "pass",
+                        "testResults": [{"name": "status code", "status": "pass"}],
+                        "assertionResults": [{"name": "response body", "status": "pass"}],
+                        "error": null
+                    }
+                ]
+            }
+        ]))
+        .expect("serialize report"),
+        None,
+    )
+    .expect("parse report");
+
+    assert_eq!(report.summary.total_requests, 1);
+    assert_eq!(report.summary.passed_requests, 1);
+    assert_eq!(report.summary.total_tests, 2);
+    assert_eq!(report.requests.len(), 1);
+    assert_eq!(report.requests[0].name.as_deref(), Some("Morty Rick.yml"));
+    assert_eq!(report.requests[0].method.as_deref(), Some("GET"));
+    assert_eq!(
+        report.requests[0].url.as_deref(),
+        Some("https://rickandmortyapi.com/api/character/231")
+    );
+    assert!(report.requests[0].failed_tests.is_empty());
+    assert!(report.requests[0].failed_assertions.is_empty());
+    assert!(report.requests[0].errors.is_empty());
+}
+
+#[test]
+fn parses_bruno_object_report_format_with_results_key() {
+    let report = parse_report_str(
+        &serde_json::to_string(&json!({
+            "summary": {
+                "totalRequests": 1,
+                "passedRequests": 0,
+                "failedRequests": 1,
+                "failedTests": 1,
+                "failedAssertions": 1,
+                "errorRequests": 1
+            },
+            "results": [
+                {
+                    "name": "Create user",
+                    "request": {"method": "POST", "url": "https://example.test/users"},
+                    "response": {"status": 500, "statusText": "Internal Server Error"},
+                    "testResults": [{"name": "status code", "status": "fail", "message": "expected 201"}],
+                    "assertionResults": [{"name": "body.id", "status": "fail", "message": "missing"}],
+                    "error": {"message": "request failed"}
+                }
+            ]
+        }))
+        .expect("serialize report"),
+        None,
+    )
+    .expect("parse report");
+
+    assert_eq!(report.summary.failed_requests, 1);
+    assert_eq!(report.summary.error_count, 1);
+    assert_eq!(report.requests[0].method.as_deref(), Some("POST"));
+    assert_eq!(report.requests[0].failed_tests.len(), 1);
+    assert_eq!(report.requests[0].failed_assertions.len(), 1);
+    assert_eq!(
+        report.requests[0].errors[0].message.as_deref(),
+        Some("request failed")
+    );
+}
+
+#[test]
 fn rejects_malformed_json_and_invalid_shapes() {
     let malformed = parse_report_str("{", None).expect_err("invalid json");
     assert!(matches!(malformed, ReportParseError::InvalidJson(_)));

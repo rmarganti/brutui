@@ -9,11 +9,19 @@ use crate::report::RunReport;
 use crate::runner::{RunCompletion, RunOutcome, RunToolError};
 use crate::ui::FocusPane;
 
+// ----------------------------------------------------------------
+// AppState
+// ----------------------------------------------------------------
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppState {
     pub startup: StartupState,
     pub session: Option<SessionState>,
 }
+
+// ----------------------------------------------------------------
+// Startup and collection discovery state
+// ----------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StartupState {
@@ -31,6 +39,10 @@ pub struct CollectionPickerState {
     pub selected_filtered_index: usize,
 }
 
+// ----------------------------------------------------------------
+// Loaded session state
+// ----------------------------------------------------------------
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionState {
     pub collection: Collection,
@@ -40,11 +52,16 @@ pub struct SessionState {
     pub focus: FocusPane,
     pub modal: ModalState,
     pub run: RunState,
-    pub result_view: ResultView,
+    pub response_tab: ResponseTab,
+    pub selected_result_index: usize,
     pub raw_output: Vec<OutputLine>,
     pub latest_report_path: Option<PathBuf>,
     pub completed_run: Option<CompletedRun>,
 }
+
+// ----------------------------------------------------------------
+// Modal and overlay state
+// ----------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModalState {
@@ -52,6 +69,10 @@ pub enum ModalState {
     Help,
     EnvironmentPicker { highlighted_index: usize },
 }
+
+// ----------------------------------------------------------------
+// Active run state
+// ----------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunState {
@@ -65,11 +86,15 @@ pub struct ActiveRunState {
     pub cancellation_requested: bool,
 }
 
+// ----------------------------------------------------------------
+// Output and result view state
+// ----------------------------------------------------------------
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ResultView {
-    Summary,
-    Failures,
-    RawOutput,
+pub enum ResponseTab {
+    Body,
+    Headers,
+    Tests,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,6 +108,10 @@ pub enum OutputStream {
     Stdout,
     Stderr,
 }
+
+// ----------------------------------------------------------------
+// Completed run state
+// ----------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompletedRun {
@@ -100,18 +129,27 @@ pub enum CompletedRunStatus {
     ToolError(RunToolError),
 }
 
+// ----------------------------------------------------------------
+// State transition errors
+// ----------------------------------------------------------------
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum StateError {
     #[error("no collection is currently loaded")]
     NoCollectionLoaded,
+
     #[error("the current collection has no selectable nodes")]
     EmptyCollection,
+
     #[error("the requested environment index {index} is out of bounds")]
     InvalidEnvironmentIndex { index: usize },
+
     #[error("no environment picker is open")]
     EnvironmentPickerClosed,
+
     #[error("another Bruno run is already active")]
     RunAlreadyActive,
+
     #[error("no active Bruno run is in progress")]
     NoActiveRun,
 }
@@ -129,6 +167,10 @@ impl AppState {
             session: None,
         }
     }
+
+    // ----------------------------------------------------------------
+    // Startup and collection discovery transitions
+    // ----------------------------------------------------------------
 
     pub fn show_collection_picker(&mut self, collections: Vec<DiscoveredCollection>) {
         self.startup = StartupState::CollectionPicker(CollectionPickerState::new(collections));
@@ -161,7 +203,8 @@ impl AppState {
             focus: FocusPane::CollectionTree,
             modal: ModalState::None,
             run: RunState::Idle,
-            result_view: ResultView::Summary,
+            response_tab: ResponseTab::Body,
+            selected_result_index: 0,
             raw_output: Vec::new(),
             latest_report_path: None,
             completed_run: None,
@@ -187,6 +230,10 @@ impl AppState {
             picker.move_previous();
         }
     }
+
+    // ----------------------------------------------------------------
+    // Session navigation and focus transitions
+    // ----------------------------------------------------------------
 
     pub fn cycle_focus_forward(&mut self) -> Result<(), StateError> {
         let session = self.session_mut()?;
@@ -217,6 +264,10 @@ impl AppState {
         session.selected_node = session.collection.nodes[previous_index].id();
         Ok(())
     }
+
+    // ----------------------------------------------------------------
+    // Modal and environment-picker transitions
+    // ----------------------------------------------------------------
 
     pub fn open_help(&mut self) -> Result<(), StateError> {
         self.session_mut()?.modal = ModalState::Help;
@@ -276,6 +327,10 @@ impl AppState {
         Ok(())
     }
 
+    // ----------------------------------------------------------------
+    // Session selectors
+    // ----------------------------------------------------------------
+
     pub fn selected_environment(&self) -> Option<&EnvironmentOption> {
         self.session
             .as_ref()
@@ -285,6 +340,10 @@ impl AppState {
     pub fn selected_node(&self) -> Option<&CollectionNode> {
         self.session.as_ref().and_then(SessionState::selected_node)
     }
+
+    // ----------------------------------------------------------------
+    // Run lifecycle, output, and result-view transitions
+    // ----------------------------------------------------------------
 
     pub fn start_run_on_selected_node(&mut self) -> Result<CollectionNodeId, StateError> {
         let session = self.session_mut()?;
@@ -297,7 +356,8 @@ impl AppState {
             target: target.clone(),
             cancellation_requested: false,
         });
-        session.result_view = ResultView::RawOutput;
+        session.response_tab = ResponseTab::Body;
+        session.selected_result_index = 0;
         session.raw_output.clear();
         session.completed_run = None;
         Ok(target)
@@ -340,19 +400,41 @@ impl AppState {
         session.latest_report_path = Some(completion.report_path.clone());
         session.completed_run = Some(CompletedRun::from_completion(target, completion));
         session.run = RunState::Idle;
-        session.result_view = ResultView::Summary;
+        session.response_tab = ResponseTab::Body;
+        session.selected_result_index = 0;
         Ok(())
     }
 
-    pub fn set_result_view(&mut self, view: ResultView) -> Result<(), StateError> {
-        self.session_mut()?.result_view = view;
+    pub fn set_response_tab(&mut self, tab: ResponseTab) -> Result<(), StateError> {
+        self.session_mut()?.response_tab = tab;
         Ok(())
     }
+
+    pub fn select_previous_result(&mut self) -> Result<(), StateError> {
+        let session = self.session_mut()?;
+        session.selected_result_index = session.selected_result_index.saturating_sub(1);
+        Ok(())
+    }
+
+    pub fn select_next_result(&mut self) -> Result<(), StateError> {
+        let session = self.session_mut()?;
+        let max = session.response_result_count().saturating_sub(1);
+        session.selected_result_index = (session.selected_result_index + 1).min(max);
+        Ok(())
+    }
+
+    // ----------------------------------------------------------------
+    // Internal session access
+    // ----------------------------------------------------------------
 
     fn session_mut(&mut self) -> Result<&mut SessionState, StateError> {
         self.session.as_mut().ok_or(StateError::NoCollectionLoaded)
     }
 }
+
+// ----------------------------------------------------------------
+// CollectionPickerState behavior
+// ----------------------------------------------------------------
 
 impl CollectionPickerState {
     pub fn new(collections: Vec<DiscoveredCollection>) -> Self {
@@ -410,7 +492,34 @@ impl CollectionPickerState {
     }
 }
 
+// ----------------------------------------------------------------
+// SessionState selectors
+// ----------------------------------------------------------------
+
 impl SessionState {
+    pub fn response_result_count(&self) -> usize {
+        self.completed_run
+            .as_ref()
+            .and_then(|run| match &run.status {
+                CompletedRunStatus::Success(report) | CompletedRunStatus::FailedTests(report) => {
+                    Some(report.requests.len())
+                }
+                _ => None,
+            })
+            .unwrap_or(0)
+    }
+
+    pub fn selected_response_result(&self) -> Option<&crate::report::RequestResult> {
+        self.completed_run
+            .as_ref()
+            .and_then(|run| match &run.status {
+                CompletedRunStatus::Success(report) | CompletedRunStatus::FailedTests(report) => {
+                    report.requests.get(self.selected_result_index)
+                }
+                _ => None,
+            })
+    }
+
     pub fn selected_node(&self) -> Option<&CollectionNode> {
         self.collection
             .nodes
@@ -425,6 +534,10 @@ impl SessionState {
             .position(|node| node.id() == self.selected_node)
     }
 }
+
+// ----------------------------------------------------------------
+// CompletedRun construction
+// ----------------------------------------------------------------
 
 impl CompletedRun {
     fn from_completion(target: CollectionNodeId, completion: RunCompletion) -> Self {
@@ -443,6 +556,10 @@ impl CompletedRun {
         }
     }
 }
+
+// ----------------------------------------------------------------
+// Environment defaults
+// ----------------------------------------------------------------
 
 fn default_environment_index(environments: &[EnvironmentOption]) -> usize {
     environments
@@ -467,8 +584,8 @@ mod tests {
     use crate::ui::FocusPane;
 
     use super::{
-        AppState, CompletedRunStatus, ModalState, OutputStream, ResultView, RunState, StartupState,
-        StateError,
+        AppState, CompletedRunStatus, ModalState, OutputStream, ResponseTab, RunState,
+        StartupState, StateError,
     };
 
     #[test]
@@ -600,8 +717,8 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(
-            state.session.as_ref().expect("session").result_view,
-            ResultView::RawOutput
+            state.session.as_ref().expect("session").response_tab,
+            ResponseTab::Body
         );
     }
 
@@ -713,7 +830,7 @@ mod tests {
             session.latest_report_path,
             Some(PathBuf::from("/tmp/latest-report.json"))
         );
-        assert_eq!(session.result_view, ResultView::Summary);
+        assert_eq!(session.response_tab, ResponseTab::Body);
     }
 
     #[test]

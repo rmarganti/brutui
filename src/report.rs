@@ -35,12 +35,37 @@ pub struct RequestResult {
     pub method: Option<String>,
     pub url: Option<String>,
     pub status: Option<String>,
+    pub status_code: Option<u64>,
+    pub status_text: Option<String>,
+    pub duration_ms: Option<u64>,
+    pub size_bytes: Option<u64>,
+    pub request_body: Option<String>,
+    pub response_body: Option<String>,
+    #[serde(default)]
+    pub request_headers: Vec<Header>,
+    #[serde(default)]
+    pub response_headers: Vec<Header>,
+    #[serde(default)]
+    pub tests: Vec<TestResult>,
     #[serde(default)]
     pub failed_tests: Vec<FailedTest>,
     #[serde(default)]
     pub failed_assertions: Vec<FailedAssertion>,
     #[serde(default)]
     pub errors: Vec<ReportError>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct Header {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct TestResult {
+    pub name: Option<String>,
+    pub status: Option<String>,
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -80,7 +105,7 @@ pub enum ReportParseError {
     },
     #[error("failed to parse Bruno report JSON: {0}")]
     InvalidJson(#[from] serde_json::Error),
-    #[error("Bruno report root must be a JSON object")]
+    #[error("Bruno report root must be a JSON object or array")]
     InvalidRoot,
     #[error("Bruno report is missing required semantics: {0}")]
     MissingSemantics(&'static str),
@@ -106,26 +131,11 @@ pub fn parse_report_str(
     source_path: Option<PathBuf>,
 ) -> Result<RunReport, ReportParseError> {
     let value: Value = serde_json::from_str(input)?;
-    let root = value.as_object().ok_or(ReportParseError::InvalidRoot)?;
-
-    let summary = parse_summary(root.get("summary"), root.get("requests"))?;
-    let requests = parse_requests(root.get("requests"))?;
-    let mut diagnostics = Vec::new();
-
-    if !root.contains_key("summary") {
-        diagnostics.push(ParseDiagnostic {
-            path: "summary".to_string(),
-            message: "summary missing; counts were derived from request results when possible"
-                .to_string(),
-        });
-    }
-
-    if !root.contains_key("requests") {
-        diagnostics.push(ParseDiagnostic {
-            path: "requests".to_string(),
-            message: "requests missing; failure details unavailable".to_string(),
-        });
-    }
+    let (summary, requests, diagnostics) = match &value {
+        Value::Object(root) => parse_object_report(root)?,
+        Value::Array(iterations) => parse_iteration_report(iterations)?,
+        _ => return Err(ReportParseError::InvalidRoot),
+    };
 
     if summary.total_requests == 0 && requests.is_empty() {
         return Err(ReportParseError::MissingSemantics(
@@ -139,6 +149,84 @@ pub fn parse_report_str(
         diagnostics,
         source_path,
     })
+}
+
+fn parse_object_report(
+    root: &Map<String, Value>,
+) -> Result<(ReportSummary, Vec<RequestResult>, Vec<ParseDiagnostic>), ReportParseError> {
+    let requests_value = root.get("requests").or_else(|| root.get("results"));
+    let summary = parse_summary(root.get("summary"), requests_value)?;
+    let requests = parse_requests(requests_value)?;
+    let mut diagnostics = Vec::new();
+
+    if !root.contains_key("summary") {
+        diagnostics.push(ParseDiagnostic {
+            path: "summary".to_string(),
+            message: "summary missing; counts were derived from request results when possible"
+                .to_string(),
+        });
+    }
+
+    if requests_value.is_none() {
+        diagnostics.push(ParseDiagnostic {
+            path: "requests".to_string(),
+            message: "requests/results missing; failure details unavailable".to_string(),
+        });
+    }
+
+    Ok((summary, requests, diagnostics))
+}
+
+fn parse_iteration_report(
+    iterations: &[Value],
+) -> Result<(ReportSummary, Vec<RequestResult>, Vec<ParseDiagnostic>), ReportParseError> {
+    let mut summary = ReportSummary::default();
+    let mut requests = Vec::new();
+    let mut diagnostics = Vec::new();
+
+    for (index, iteration) in iterations.iter().enumerate() {
+        let iteration = iteration
+            .as_object()
+            .ok_or(ReportParseError::InvalidFieldType {
+                field: "iterations[]",
+                expected: "an object",
+            })?;
+        let requests_value = iteration
+            .get("results")
+            .or_else(|| iteration.get("requests"));
+        let iteration_summary = parse_summary(iteration.get("summary"), requests_value)?;
+        add_summary(&mut summary, &iteration_summary);
+        requests.extend(parse_requests(requests_value)?);
+
+        if !iteration.contains_key("summary") {
+            diagnostics.push(ParseDiagnostic {
+                path: format!("[{index}].summary"),
+                message: "summary missing; counts were derived from request results when possible"
+                    .to_string(),
+            });
+        }
+        if requests_value.is_none() {
+            diagnostics.push(ParseDiagnostic {
+                path: format!("[{index}].results"),
+                message: "results/requests missing; failure details unavailable".to_string(),
+            });
+        }
+    }
+
+    Ok((summary, requests, diagnostics))
+}
+
+fn add_summary(total: &mut ReportSummary, summary: &ReportSummary) {
+    total.total_requests += summary.total_requests;
+    total.passed_requests += summary.passed_requests;
+    total.failed_requests += summary.failed_requests;
+    total.total_tests += summary.total_tests;
+    total.passed_tests += summary.passed_tests;
+    total.failed_tests += summary.failed_tests;
+    total.total_assertions += summary.total_assertions;
+    total.passed_assertions += summary.passed_assertions;
+    total.failed_assertions += summary.failed_assertions;
+    total.error_count += summary.error_count;
 }
 
 fn parse_summary(
@@ -161,18 +249,27 @@ fn parse_summary(
             first_u64(map, &["passed_requests", "passedRequests"]).unwrap_or_default();
         summary.failed_requests =
             first_u64(map, &["failed_requests", "failedRequests"]).unwrap_or_default();
-        summary.total_tests =
-            first_u64(map, &["total_tests", "totalTests", "tests"]).unwrap_or_default();
-        summary.passed_tests = first_u64(map, &["passed_tests", "passedTests"]).unwrap_or_default();
-        summary.failed_tests = first_u64(map, &["failed_tests", "failedTests"]).unwrap_or_default();
+        summary.total_tests = first_u64(map, &["total_tests", "totalTests", "tests"])
+            .unwrap_or_default()
+            + first_u64(map, &["totalPreRequestTests"]).unwrap_or_default()
+            + first_u64(map, &["totalPostResponseTests"]).unwrap_or_default();
+        summary.passed_tests = first_u64(map, &["passed_tests", "passedTests"]).unwrap_or_default()
+            + first_u64(map, &["passedPreRequestTests"]).unwrap_or_default()
+            + first_u64(map, &["passedPostResponseTests"]).unwrap_or_default();
+        summary.failed_tests = first_u64(map, &["failed_tests", "failedTests"]).unwrap_or_default()
+            + first_u64(map, &["failedPreRequestTests"]).unwrap_or_default()
+            + first_u64(map, &["failedPostResponseTests"]).unwrap_or_default();
         summary.total_assertions =
             first_u64(map, &["total_assertions", "totalAssertions"]).unwrap_or_default();
         summary.passed_assertions =
             first_u64(map, &["passed_assertions", "passedAssertions"]).unwrap_or_default();
         summary.failed_assertions =
             first_u64(map, &["failed_assertions", "failedAssertions"]).unwrap_or_default();
-        summary.error_count =
-            first_u64(map, &["error_count", "errorCount", "errors"]).unwrap_or_default();
+        summary.error_count = first_u64(
+            map,
+            &["error_count", "errorCount", "errors", "errorRequests"],
+        )
+        .unwrap_or_default();
     }
 
     if let Some(requests) = requests_value {
@@ -259,29 +356,89 @@ fn parse_request(index: usize, request: &Value) -> Result<RequestResult, ReportP
             expected: "an object",
         })?;
 
+    let request = map.get("request").and_then(Value::as_object);
+    let response = map.get("response").and_then(Value::as_object);
+    let test = map.get("test").and_then(Value::as_object);
+
     Ok(RequestResult {
-        name: first_string(map, &["name", "requestName", "request"]),
-        method: first_string(map, &["method"]),
-        url: first_string(map, &["url"]),
-        status: first_string(map, &["status", "result", "outcome"]),
+        name: first_string(map, &["name", "requestName"])
+            .or_else(|| test.and_then(|map| first_string(map, &["name", "filename"])))
+            .or_else(|| first_string(map, &["request"])),
+        method: first_string(map, &["method"])
+            .or_else(|| request.and_then(|map| first_string(map, &["method"]))),
+        url: first_string(map, &["url"])
+            .or_else(|| request.and_then(|map| first_string(map, &["url"]))),
+        status: first_string(map, &["status", "result", "outcome"])
+            .or_else(|| response.and_then(|map| first_string(map, &["statusText", "status"]))),
+        status_code: response
+            .and_then(|map| first_u64(map, &["status", "statusCode", "code"]))
+            .or_else(|| first_u64(map, &["statusCode"])),
+        status_text: response
+            .and_then(|map| first_string(map, &["statusText", "statusMessage"]))
+            .or_else(|| first_string(map, &["statusText"])),
+        duration_ms: first_u64(map, &["duration", "durationMs", "responseTime"]).or_else(|| {
+            response.and_then(|map| first_u64(map, &["duration", "durationMs", "responseTime"]))
+        }),
+        size_bytes: first_u64(map, &["size", "sizeBytes", "responseSize"]).or_else(|| {
+            response.and_then(|map| first_u64(map, &["size", "sizeBytes", "responseSize"]))
+        }),
+        request_body: request.and_then(|map| first_body(map)),
+        response_body: response
+            .and_then(|map| first_body(map))
+            .or_else(|| first_body(map)),
+        request_headers: request
+            .and_then(|map| parse_headers_value(map.get("headers")))
+            .unwrap_or_default(),
+        response_headers: response
+            .and_then(|map| parse_headers_value(map.get("headers")))
+            .unwrap_or_default(),
+        tests: parse_tests(map),
         failed_tests: parse_failed_tests(map, index),
         failed_assertions: parse_failed_assertions(map, index),
         errors: parse_errors(map, index),
     })
 }
 
-fn parse_failed_tests(map: &Map<String, Value>, index: usize) -> Vec<FailedTest> {
-    collect_array_items(map, &["failedTests", "failed_tests", "tests"], |entry| {
-        FailedTest {
+fn parse_tests(map: &Map<String, Value>) -> Vec<TestResult> {
+    collect_array_items(
+        map,
+        &[
+            "tests",
+            "testResults",
+            "preRequestTestResults",
+            "postResponseTestResults",
+        ],
+        |entry| TestResult {
             name: first_string(entry, &["name", "testName", "title"]),
             status: first_string(entry, &["status", "result"]),
             message: first_string(entry, &["message", "error", "failure"]),
-        }
-    })
+        },
+    )
+}
+
+fn parse_failed_tests(map: &Map<String, Value>, index: usize) -> Vec<FailedTest> {
+    collect_array_items(
+        map,
+        &[
+            "failedTests",
+            "failed_tests",
+            "tests",
+            "testResults",
+            "preRequestTestResults",
+            "postResponseTestResults",
+        ],
+        |entry| FailedTest {
+            name: first_string(entry, &["name", "testName", "title"]),
+            status: first_string(entry, &["status", "result"]),
+            message: first_string(entry, &["message", "error", "failure"]),
+        },
+    )
     .into_iter()
     .filter(|test| {
-        !matches!(test.status.as_deref(), Some("passed" | "success" | "ok"))
-            || test.message.is_some()
+        !matches!(
+            test.status.as_deref(),
+            Some("passed" | "pass" | "success" | "ok")
+        ) || test.message.is_some()
     })
     .map(|mut test| {
         if test.status.is_none() {
@@ -295,7 +452,12 @@ fn parse_failed_tests(map: &Map<String, Value>, index: usize) -> Vec<FailedTest>
 fn parse_failed_assertions(map: &Map<String, Value>, _index: usize) -> Vec<FailedAssertion> {
     collect_array_items(
         map,
-        &["failedAssertions", "failed_assertions", "assertions"],
+        &[
+            "failedAssertions",
+            "failed_assertions",
+            "assertions",
+            "assertionResults",
+        ],
         |entry| {
             (
                 FailedAssertion {
@@ -313,7 +475,10 @@ fn parse_failed_assertions(map: &Map<String, Value>, _index: usize) -> Vec<Faile
         assertion.message.is_some()
             || assertion.expected.is_some()
             || assertion.actual.is_some()
-            || !matches!(status.as_deref(), Some("passed" | "success" | "ok"))
+            || !matches!(
+                status.as_deref(),
+                Some("passed" | "pass" | "success" | "ok")
+            )
     })
     .map(|(assertion, _)| assertion)
     .collect()
@@ -338,6 +503,13 @@ fn parse_errors(map: &Map<String, Value>, _index: usize) -> Vec<ReportError> {
             code: first_string(map, &["code", "errorCode"]),
             message: Some(message),
         });
+    } else if let Some(error) = map.get("error").and_then(Value::as_object) {
+        if let Some(message) = first_string(error, &["message", "error", "detail"]) {
+            errors.push(ReportError {
+                code: first_string(error, &["code", "type", "errorCode"]),
+                message: Some(message),
+            });
+        }
     }
     errors
 }
@@ -360,21 +532,35 @@ fn request_failed(
 fn failed_test_count(request: &Map<String, Value>) -> u64 {
     collect_array_items(
         request,
-        &["failedTests", "failed_tests", "tests"],
+        &[
+            "failedTests",
+            "failed_tests",
+            "tests",
+            "testResults",
+            "preRequestTestResults",
+            "postResponseTestResults",
+        ],
         |entry| first_string(entry, &["status", "result"]).unwrap_or_else(|| "failed".to_string()),
     )
     .into_iter()
-    .filter(|status| !matches!(status.as_str(), "passed" | "success" | "ok"))
+    .filter(|status| !matches!(status.as_str(), "passed" | "pass" | "success" | "ok"))
     .count() as u64
 }
 
 fn failed_assertion_count(request: &Map<String, Value>) -> u64 {
     collect_array_items(
         request,
-        &["failedAssertions", "failed_assertions", "assertions"],
-        |entry| entry.clone(),
+        &[
+            "failedAssertions",
+            "failed_assertions",
+            "assertions",
+            "assertionResults",
+        ],
+        |entry| first_string(entry, &["status", "result"]).unwrap_or_else(|| "failed".to_string()),
     )
-    .len() as u64
+    .into_iter()
+    .filter(|status| !matches!(status.as_str(), "passed" | "pass" | "success" | "ok"))
+    .count() as u64
 }
 
 fn error_count(request: &Map<String, Value>) -> u64 {
@@ -383,7 +569,61 @@ fn error_count(request: &Map<String, Value>) -> u64 {
         return count;
     }
 
-    if request.contains_key("error") { 1 } else { 0 }
+    match request.get("error") {
+        Some(Value::Null) | None => 0,
+        Some(Value::Object(error))
+            if first_string(error, &["message", "error", "detail"]).is_none() =>
+        {
+            0
+        }
+        Some(_) => 1,
+    }
+}
+
+fn parse_headers_value(value: Option<&Value>) -> Option<Vec<Header>> {
+    match value? {
+        Value::Object(headers) => Some(
+            headers
+                .iter()
+                .map(|(name, value)| Header {
+                    name: name.clone(),
+                    value: value_to_display_string(value),
+                })
+                .collect(),
+        ),
+        Value::Array(headers) => Some(
+            headers
+                .iter()
+                .filter_map(|entry| {
+                    let entry = entry.as_object()?;
+                    Some(Header {
+                        name: first_string(entry, &["name", "key"]).unwrap_or_default(),
+                        value: first_string(entry, &["value"]).unwrap_or_default(),
+                    })
+                })
+                .filter(|header| !header.name.is_empty() || !header.value.is_empty())
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
+fn first_body(map: &Map<String, Value>) -> Option<String> {
+    ["body", "data", "text", "content"]
+        .iter()
+        .find_map(|key| map.get(*key).map(value_to_display_string))
+}
+
+fn value_to_display_string(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Null => String::new(),
+        Value::Number(number) => number.to_string(),
+        Value::Bool(boolean) => boolean.to_string(),
+        Value::Array(_) | Value::Object(_) => {
+            serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
+        }
+    }
 }
 
 fn collect_array_items<T>(
@@ -392,16 +632,9 @@ fn collect_array_items<T>(
     parser: impl Fn(&Map<String, Value>) -> T,
 ) -> Vec<T> {
     keys.iter()
-        .find_map(|key| map.get(*key))
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_object)
-                .map(parser)
-                .collect()
-        })
-        .unwrap_or_default()
+        .filter_map(|key| map.get(*key).and_then(Value::as_array))
+        .flat_map(|items| items.iter().filter_map(Value::as_object).map(&parser))
+        .collect()
 }
 
 fn first_u64(map: &Map<String, Value>, keys: &[&str]) -> Option<u64> {

@@ -1,0 +1,15 @@
+info:
+  name: Morty Rick
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: https://rickandmortyapi.com/api/character/231
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
