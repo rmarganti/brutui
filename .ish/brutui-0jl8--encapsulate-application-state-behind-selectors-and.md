@@ -1,7 +1,7 @@
 ---
 # brutui-0jl8
 title: Encapsulate application state behind selectors and transitions
-status: todo
+status: completed
 type: task
 priority: normal
 tags:
@@ -9,7 +9,7 @@ tags:
 - invariants
 - architecture
 created_at: 2026-05-30T17:23:54.658802Z
-updated_at: 2026-05-30T17:24:20.633084Z
+updated_at: 2026-05-30T17:46:22.293262Z
 parent: brutui-hrnz
 blocking:
 - brutui-u3c9
@@ -45,3 +45,14 @@ Most application state structs expose public mutable fields (`AppState`, `Sessio
 - `cargo clippy --all-targets --all-features -- -D warnings`
 - `cargo test --all-targets --all-features`
 - `ish check`
+
+## Implementation Notes
+
+- Made `AppState`, `SessionState`, and `CollectionPickerState` fields private and introduced read-only selectors so app/UI code no longer reaches into mutable session internals directly.
+- Added explicit transitions/selectors such as `AppState::session()`, `AppState::startup()`, `AppState::select_node(...)`, and `SessionState` accessors for focus, modal, run state, selected environment, output, and completed-run data.
+- Added `StateError::InvalidSelectedNode` plus a focused invariant test proving invalid node selection is rejected while preserving the current valid selection.
+- Updated app/UI/tests to consume the new selector surface instead of mutating state structs directly, which should make follow-on collection/indexing work safer.
+
+## Verification
+
+- `./scripts/validate.sh`

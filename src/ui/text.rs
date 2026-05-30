@@ -8,21 +8,21 @@ use crate::{
 };
 
 pub fn current_tab_text(session: &SessionState) -> String {
-    if let RunState::Running(active) = &session.run {
+    if let RunState::Running(active) = session.run_state() {
         return if active.cancellation_requested {
             "Cancellation requested; waiting for Bruno to exit.".to_string()
         } else {
             let mut text = format!("Run in progress: {}", selected_node_label(&active.target));
-            if !session.raw_output.is_empty() {
+            if !session.raw_output().is_empty() {
                 text.push_str("\n\n");
-                text.push_str(&raw_output_text(&session.raw_output));
+                text.push_str(&raw_output_text(session.raw_output()));
             }
             text
         };
     }
 
     let Some(request) = session.selected_response_result() else {
-        return match &session.completed_run {
+        return match session.completed_run() {
             Some(run) => match &run.status {
                 CompletedRunStatus::Cancelled => {
                     "Status: cancelled\nRun was cancelled.".to_string()
@@ -52,19 +52,18 @@ pub fn current_tab_text(session: &SessionState) -> String {
     };
 
     let mut text = session
-        .completed_run
-        .as_ref()
+        .completed_run()
         .map(completed_run_summary_text)
         .unwrap_or_default();
     if !text.is_empty() {
         text.push_str("\n\n");
     }
-    if matches!(session.response_tab, ResponseTab::Tests) && !session.raw_output.is_empty() {
+    if matches!(session.response_tab(), ResponseTab::Tests) && !session.raw_output().is_empty() {
         text.push_str("Raw output:\n");
-        text.push_str(&raw_output_text(&session.raw_output));
+        text.push_str(&raw_output_text(session.raw_output()));
         text.push_str("\n\n");
     }
-    text.push_str(&match session.response_tab {
+    text.push_str(&match session.response_tab() {
         ResponseTab::Body => response_body_text(request),
         ResponseTab::Headers => response_headers_text(request),
         ResponseTab::Tests => response_tests_text(request),

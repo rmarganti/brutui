@@ -46,21 +46,21 @@ fn run_key_streams_output_and_summary_and_raw_views_render() {
         .expect("start run with r");
     wait_for_completion(&mut controller);
 
-    let session = controller.state.session.as_ref().expect("session");
+    let session = controller.state.session().expect("session");
     assert!(matches!(
-        session.completed_run.as_ref().map(|run| &run.status),
+        session.completed_run().map(|run| &run.status),
         Some(CompletedRunStatus::Success(_))
     ));
-    assert_eq!(session.raw_output.len(), 2);
+    assert_eq!(session.raw_output().len(), 2);
     assert!(
         session
-            .raw_output
+            .raw_output()
             .iter()
             .any(|line| line.stream == OutputStream::Stdout && line.text == "booting")
     );
     assert!(
         session
-            .raw_output
+            .raw_output()
             .iter()
             .any(|line| line.stream == OutputStream::Stderr && line.text == "warning")
     );
@@ -162,7 +162,7 @@ fn environment_picker_can_be_opened_selected_and_cancelled() {
         .handle_key_event(press_char('e'))
         .expect("open env picker");
     assert!(matches!(
-        controller.state.session.as_ref().expect("session").modal,
+        controller.state.session().expect("session").modal(),
         ModalState::EnvironmentPicker {
             highlighted_index: 0
         }
@@ -183,7 +183,7 @@ fn environment_picker_can_be_opened_selected_and_cancelled() {
         "dev"
     );
     assert!(matches!(
-        controller.state.session.as_ref().expect("session").modal,
+        controller.state.session().expect("session").modal(),
         ModalState::None
     ));
 
@@ -242,10 +242,9 @@ done
     assert!(
         controller
             .state
-            .session
-            .as_ref()
+            .session()
             .expect("session")
-            .raw_output
+            .raw_output()
             .iter()
             .any(|line| line.text.contains("Run already active"))
     );
@@ -258,9 +257,8 @@ done
     assert!(matches!(
         controller
             .state
-            .session
-            .as_ref()
-            .and_then(|session| session.completed_run.as_ref())
+            .session()
+            .and_then(|session| session.completed_run())
             .map(|run| &run.status),
         Some(CompletedRunStatus::Cancelled)
     ));
@@ -277,9 +275,8 @@ fn wait_for_completion(controller: &mut AppController) {
         controller.pump_run_events().expect("pump run events");
         let done = controller
             .state
-            .session
-            .as_ref()
-            .and_then(|session| session.completed_run.as_ref())
+            .session()
+            .and_then(|session| session.completed_run())
             .is_some()
             && !controller.has_active_run();
         if done {
@@ -299,10 +296,9 @@ fn wait_for_output_lines(controller: &mut AppController, minimum_lines: usize) {
         controller.pump_run_events().expect("pump run events");
         let count = controller
             .state
-            .session
-            .as_ref()
+            .session()
             .expect("session")
-            .raw_output
+            .raw_output()
             .len();
         if count >= minimum_lines {
             return;

@@ -14,8 +14,8 @@ use crate::runner::{RunCompletion, RunOutcome, RunToolError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppState {
-    pub startup: StartupState,
-    pub session: Option<SessionState>,
+    startup: StartupState,
+    session: Option<SessionState>,
 }
 
 // ----------------------------------------------------------------
@@ -32,10 +32,10 @@ pub enum StartupState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CollectionPickerState {
-    pub collections: Vec<DiscoveredCollection>,
-    pub query: String,
-    pub filtered: Vec<usize>,
-    pub selected_filtered_index: usize,
+    collections: Vec<DiscoveredCollection>,
+    query: String,
+    filtered: Vec<usize>,
+    selected_filtered_index: usize,
 }
 
 // ----------------------------------------------------------------
@@ -51,19 +51,19 @@ pub enum FocusPane {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionState {
-    pub collection: Collection,
-    pub selected_node: CollectionNodeId,
-    pub environments: Vec<EnvironmentOption>,
-    pub selected_environment_index: usize,
-    pub focus: FocusPane,
-    pub modal: ModalState,
-    pub run: RunState,
-    pub response_tab: ResponseTab,
-    pub selected_result_index: usize,
-    pub raw_output: Vec<OutputLine>,
-    pub latest_report_path: Option<PathBuf>,
-    pub completed_run: Option<CompletedRun>,
-    pub scroll: PaneScrollState,
+    collection: Collection,
+    selected_node: CollectionNodeId,
+    environments: Vec<EnvironmentOption>,
+    selected_environment_index: usize,
+    focus: FocusPane,
+    modal: ModalState,
+    run: RunState,
+    response_tab: ResponseTab,
+    selected_result_index: usize,
+    raw_output: Vec<OutputLine>,
+    latest_report_path: Option<PathBuf>,
+    completed_run: Option<CompletedRun>,
+    scroll: PaneScrollState,
 }
 
 // ----------------------------------------------------------------
@@ -180,6 +180,9 @@ pub enum StateError {
     #[error("no environment picker is open")]
     EnvironmentPickerClosed,
 
+    #[error("the requested collection node is not selectable in the current session")]
+    InvalidSelectedNode,
+
     #[error("another Bruno run is already active")]
     RunAlreadyActive,
 
@@ -199,6 +202,18 @@ impl AppState {
             startup: StartupState::Discovering,
             session: None,
         }
+    }
+
+    pub fn startup(&self) -> &StartupState {
+        &self.startup
+    }
+
+    pub fn session(&self) -> Option<&SessionState> {
+        self.session.as_ref()
+    }
+
+    pub(crate) fn session_for_render(&mut self) -> Option<&mut SessionState> {
+        self.session.as_mut()
     }
 
     // ----------------------------------------------------------------
@@ -297,6 +312,10 @@ impl AppState {
         let previous_index = current_index.saturating_sub(1);
         session.selected_node = session.collection.nodes[previous_index].id();
         Ok(())
+    }
+
+    pub fn select_node(&mut self, node_id: CollectionNodeId) -> Result<(), StateError> {
+        self.session_mut()?.select_node(node_id)
     }
 
     // ----------------------------------------------------------------
@@ -512,6 +531,22 @@ impl CollectionPickerState {
         picker
     }
 
+    pub fn collections(&self) -> &[DiscoveredCollection] {
+        &self.collections
+    }
+
+    pub fn query(&self) -> &str {
+        &self.query
+    }
+
+    pub fn filtered_indices(&self) -> &[usize] {
+        &self.filtered
+    }
+
+    pub fn selected_filtered_index(&self) -> usize {
+        self.selected_filtered_index
+    }
+
     pub fn selected_collection(&self) -> Option<&DiscoveredCollection> {
         self.filtered
             .get(self.selected_filtered_index)
@@ -561,6 +596,62 @@ impl CollectionPickerState {
 // ----------------------------------------------------------------
 
 impl SessionState {
+    pub fn collection(&self) -> &Collection {
+        &self.collection
+    }
+
+    pub fn selected_node_id(&self) -> &CollectionNodeId {
+        &self.selected_node
+    }
+
+    pub fn environments(&self) -> &[EnvironmentOption] {
+        &self.environments
+    }
+
+    pub fn selected_environment_index(&self) -> usize {
+        self.selected_environment_index
+    }
+
+    pub fn selected_environment(&self) -> Option<&EnvironmentOption> {
+        self.environments.get(self.selected_environment_index)
+    }
+
+    pub fn focus(&self) -> &FocusPane {
+        &self.focus
+    }
+
+    pub fn modal(&self) -> &ModalState {
+        &self.modal
+    }
+
+    pub fn run_state(&self) -> &RunState {
+        &self.run
+    }
+
+    pub fn response_tab(&self) -> &ResponseTab {
+        &self.response_tab
+    }
+
+    pub fn selected_result_index(&self) -> usize {
+        self.selected_result_index
+    }
+
+    pub fn raw_output(&self) -> &[OutputLine] {
+        &self.raw_output
+    }
+
+    pub fn latest_report_path(&self) -> Option<&PathBuf> {
+        self.latest_report_path.as_ref()
+    }
+
+    pub fn completed_run(&self) -> Option<&CompletedRun> {
+        self.completed_run.as_ref()
+    }
+
+    pub fn scroll(&self) -> &PaneScrollState {
+        &self.scroll
+    }
+
     pub fn response_result_count(&self) -> usize {
         self.completed_run
             .as_ref()
@@ -589,6 +680,20 @@ impl SessionState {
             .nodes
             .iter()
             .find(|node| node.id() == self.selected_node)
+    }
+
+    pub fn select_node(&mut self, node_id: CollectionNodeId) -> Result<(), StateError> {
+        if self
+            .collection
+            .nodes
+            .iter()
+            .any(|node| node.id() == node_id)
+        {
+            self.selected_node = node_id;
+            Ok(())
+        } else {
+            Err(StateError::InvalidSelectedNode)
+        }
     }
 
     pub fn set_output_scroll_metrics(&mut self, viewport_height: usize, content_height: usize) {
@@ -745,7 +850,25 @@ mod tests {
                 .cli_value,
             Some("dev".to_string())
         );
-        assert_eq!(state.session.expect("session").modal, ModalState::None);
+        assert_eq!(state.session().expect("session").modal(), &ModalState::None);
+    }
+
+    #[test]
+    fn invalid_node_selection_is_rejected_and_keeps_current_selection() {
+        let mut state = AppState::new();
+        state
+            .open_collection(sample_collection(), sample_environments())
+            .expect("open collection");
+
+        let error = state
+            .select_node(CollectionNodeId::Request(PathBuf::from("missing.bru")))
+            .expect_err("invalid node selection should be rejected");
+
+        assert_eq!(error, StateError::InvalidSelectedNode);
+        assert_eq!(
+            state.selected_node().expect("selected node").id(),
+            CollectionNodeId::Root
+        );
     }
 
     #[test]
@@ -757,18 +880,18 @@ mod tests {
 
         state.cycle_focus_forward().expect("focus details");
         assert_eq!(
-            state.session.as_ref().expect("session").focus,
-            FocusPane::Details
+            state.session().expect("session").focus(),
+            &FocusPane::Details
         );
         state.cycle_focus_forward().expect("focus output");
         assert_eq!(
-            state.session.as_ref().expect("session").focus,
-            FocusPane::Output
+            state.session().expect("session").focus(),
+            &FocusPane::Output
         );
         state.cycle_focus_forward().expect("focus tree");
         assert_eq!(
-            state.session.as_ref().expect("session").focus,
-            FocusPane::CollectionTree
+            state.session().expect("session").focus(),
+            &FocusPane::CollectionTree
         );
     }
 

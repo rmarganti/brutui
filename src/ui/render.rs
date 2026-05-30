@@ -14,9 +14,9 @@ use crate::{
 use super::text::current_tab_text;
 
 pub fn render(frame: &mut Frame, state: &mut AppState) {
-    match &mut state.session {
+    match state.session_for_render() {
         Some(session) => render_session(frame, session),
-        None => render_startup(frame, &state.startup),
+        None => render_startup(frame, state.startup()),
     }
 }
 
@@ -52,27 +52,27 @@ fn render_collection_picker(frame: &mut Frame, picker: &crate::state::Collection
         .split(frame.area());
 
     frame.render_widget(
-        Paragraph::new(format!("Search: {}", picker.query))
+        Paragraph::new(format!("Search: {}", picker.query()))
             .block(Block::default().borders(Borders::ALL).title("Brutui"))
             .wrap(Wrap { trim: false }),
         chunks[0],
     );
 
-    let items = if picker.filtered.is_empty() {
+    let items = if picker.filtered_indices().is_empty() {
         vec![ListItem::new("No matching collections")]
     } else {
         picker
-            .filtered
+            .filtered_indices()
             .iter()
             .enumerate()
             .map(|(filtered_index, collection_index)| {
-                let collection = &picker.collections[*collection_index];
-                let prefix = if filtered_index == picker.selected_filtered_index {
+                let collection = &picker.collections()[*collection_index];
+                let prefix = if filtered_index == picker.selected_filtered_index() {
                     "> "
                 } else {
                     "  "
                 };
-                let style = if filtered_index == picker.selected_filtered_index {
+                let style = if filtered_index == picker.selected_filtered_index() {
                     Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
                 } else {
                     Style::default()
@@ -124,9 +124,9 @@ fn render_session(frame: &mut Frame, session: &mut SessionState) {
 }
 
 fn render_collection_tree(frame: &mut Frame, area: Rect, session: &SessionState) {
-    let selected_node = &session.selected_node;
+    let selected_node = session.selected_node_id();
     let items = session
-        .collection
+        .collection()
         .nodes
         .iter()
         .map(|node| {
@@ -146,7 +146,7 @@ fn render_collection_tree(frame: &mut Frame, area: Rect, session: &SessionState)
                 }
             };
             let selected = node.id() == *selected_node;
-            let style = if selected && session.focus == FocusPane::CollectionTree {
+            let style = if selected && session.focus() == &FocusPane::CollectionTree {
                 Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
             } else if selected {
                 Style::default().add_modifier(Modifier::REVERSED)
@@ -163,7 +163,7 @@ fn render_collection_tree(frame: &mut Frame, area: Rect, session: &SessionState)
 
     let list = List::new(items).block(focused_block(
         "Collection tree",
-        session.focus == FocusPane::CollectionTree,
+        session.focus() == &FocusPane::CollectionTree,
     ));
 
     frame.render_widget(list, area);
@@ -235,7 +235,7 @@ fn render_details_pane(frame: &mut Frame, area: Rect, session: &SessionState) {
         Paragraph::new(lines)
             .block(focused_block(
                 "Details",
-                session.focus == FocusPane::Details,
+                session.focus() == &FocusPane::Details,
             ))
             .wrap(Wrap { trim: false }),
         area,
@@ -249,11 +249,11 @@ fn render_output_pane(frame: &mut Frame, area: Rect, session: &mut SessionState)
     } else {
         format!(
             "result {}/{}",
-            session.selected_result_index + 1,
+            session.selected_result_index() + 1,
             result_count
         )
     };
-    let tab = match session.response_tab {
+    let tab = match session.response_tab() {
         ResponseTab::Body => "Body",
         ResponseTab::Headers => "Headers",
         ResponseTab::Tests => "Tests",
@@ -270,11 +270,15 @@ fn render_output_pane(frame: &mut Frame, area: Rect, session: &mut SessionState)
     });
     let content_height = wrapped_visual_line_count(&text, inner.width);
     session.set_output_scroll_metrics(inner.height as usize, content_height);
-    let vertical_offset = session.scroll.output.vertical_offset.min(u16::MAX as usize) as u16;
+    let vertical_offset = session
+        .scroll()
+        .output
+        .vertical_offset
+        .min(u16::MAX as usize) as u16;
 
     frame.render_widget(
         Paragraph::new(lines)
-            .block(focused_block(&title, session.focus == FocusPane::Output))
+            .block(focused_block(&title, session.focus() == &FocusPane::Output))
             .wrap(Wrap { trim: false })
             .scroll((vertical_offset, 0)),
         area,
@@ -283,14 +287,14 @@ fn render_output_pane(frame: &mut Frame, area: Rect, session: &mut SessionState)
 
 fn render_footer(frame: &mut Frame, area: Rect, session: &SessionState) {
     let environment = selected_environment_label(session);
-    let run_state = match &session.run {
+    let run_state = match session.run_state() {
         crate::state::RunState::Running(active) if active.cancellation_requested => "cancelling",
         crate::state::RunState::Running(_) => "running",
         crate::state::RunState::Idle => "idle",
     };
 
     let footer = Paragraph::new(Line::from(vec![
-        Span::raw(format!("Focus: {}", focus_label(&session.focus))),
+        Span::raw(format!("Focus: {}", focus_label(session.focus()))),
         Span::raw("  •  "),
         Span::raw(format!("Env: {environment}")),
         Span::raw("  •  "),
@@ -304,7 +308,7 @@ fn render_footer(frame: &mut Frame, area: Rect, session: &SessionState) {
 }
 
 fn render_modal(frame: &mut Frame, session: &SessionState) {
-    match &session.modal {
+    match session.modal() {
         ModalState::None => {}
         ModalState::Help => {
             let area = centered_rect(frame.area(), 70, 60);
@@ -334,12 +338,12 @@ fn render_modal(frame: &mut Frame, session: &SessionState) {
             let area = centered_rect(frame.area(), 60, 60);
             frame.render_widget(Clear, area);
             let items = session
-                .environments
+                .environments()
                 .iter()
                 .enumerate()
                 .map(|(index, environment)| {
                     let highlighted = index == *highlighted_index;
-                    let selected = index == session.selected_environment_index;
+                    let selected = index == session.selected_environment_index();
                     let prefix = if highlighted { "> " } else { "  " };
                     let selected_suffix = if selected { " (current)" } else { "" };
                     let style = if highlighted {
@@ -386,8 +390,7 @@ fn wrapped_visual_line_count(text: &str, width: u16) -> usize {
 
 fn selected_environment_label(session: &SessionState) -> &str {
     session
-        .environments
-        .get(session.selected_environment_index)
+        .selected_environment()
         .map(|environment| environment.display_name.as_str())
         .unwrap_or("unknown")
 }

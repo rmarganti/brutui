@@ -44,11 +44,11 @@ mod tests {
             handle_key_event(&mut state, press(KeyCode::Enter)).expect("choose collection");
 
         assert_eq!(outcome, UiEventResult::StartupCollectionChosen);
-        let crate::state::StartupState::CollectionPicker(picker) = &state.startup else {
+        let crate::state::StartupState::CollectionPicker(picker) = state.startup() else {
             panic!("expected collection picker");
         };
-        assert_eq!(picker.query, "cat");
-        assert_eq!(picker.filtered.len(), 1);
+        assert_eq!(picker.query(), "cat");
+        assert_eq!(picker.filtered_indices().len(), 1);
         assert_eq!(
             picker
                 .selected_collection()
@@ -71,8 +71,8 @@ mod tests {
 
         handle_key_event(&mut state, press(KeyCode::Tab)).expect("handle tab");
         assert_eq!(
-            state.session.as_ref().expect("session").focus,
-            FocusPane::Details
+            state.session().expect("session").focus(),
+            &FocusPane::Details
         );
 
         handle_key_event(&mut state, press(KeyCode::Down)).expect("ignore down outside tree");
@@ -88,13 +88,13 @@ mod tests {
 
         handle_key_event(&mut state, press(KeyCode::Char('?'))).expect("open help");
         assert!(matches!(
-            state.session.as_ref().expect("session").modal,
+            state.session().expect("session").modal(),
             ModalState::Help
         ));
 
         handle_key_event(&mut state, press(KeyCode::Esc)).expect("close help");
         assert!(matches!(
-            state.session.as_ref().expect("session").modal,
+            state.session().expect("session").modal(),
             ModalState::None
         ));
     }
@@ -132,8 +132,9 @@ mod tests {
         let backend = TestBackend::new(120, 36);
         let mut terminal = Terminal::new(backend).expect("test terminal");
         let mut state = loaded_state();
-        state.session.as_mut().expect("session").selected_node =
-            CollectionNodeId::Request(PathBuf::from("users/list.bru"));
+        state
+            .select_node(CollectionNodeId::Request(PathBuf::from("users/list.bru")))
+            .expect("select request node");
 
         terminal
             .draw(|frame| render(frame, &mut state))

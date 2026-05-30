@@ -17,11 +17,11 @@ pub fn handle_key_event(
         return Ok(UiEventResult::Continue);
     }
 
-    let Some(session) = state.session.as_ref() else {
+    let Some(session) = state.session() else {
         return handle_startup_keys(state, event);
     };
 
-    match &session.modal {
+    match session.modal() {
         ModalState::Help => handle_help_modal_keys(state, event),
         ModalState::EnvironmentPicker { .. } => handle_environment_picker_keys(state, event),
         ModalState::None => handle_session_keys(state, event),
@@ -29,7 +29,7 @@ pub fn handle_key_event(
 }
 
 fn handle_startup_keys(state: &mut AppState, event: KeyEvent) -> Result<UiEventResult, StateError> {
-    match &state.startup {
+    match state.startup() {
         StartupState::CollectionPicker(_) => match event.code {
             KeyCode::Char('q') | KeyCode::Esc => Ok(UiEventResult::Quit),
             KeyCode::Up | KeyCode::Char('k') => {
@@ -41,15 +41,15 @@ fn handle_startup_keys(state: &mut AppState, event: KeyEvent) -> Result<UiEventR
                 Ok(UiEventResult::Continue)
             }
             KeyCode::Backspace => {
-                if let StartupState::CollectionPicker(picker) = &state.startup {
-                    let mut query = picker.query.clone();
+                if let StartupState::CollectionPicker(picker) = state.startup() {
+                    let mut query = picker.query().to_string();
                     query.pop();
                     state.set_collection_picker_query(query);
                 }
                 Ok(UiEventResult::Continue)
             }
             KeyCode::Enter => {
-                if let StartupState::CollectionPicker(picker) = &state.startup {
+                if let StartupState::CollectionPicker(picker) = state.startup() {
                     if picker.selected_collection().is_some() {
                         return Ok(UiEventResult::StartupCollectionChosen);
                     }
@@ -57,8 +57,8 @@ fn handle_startup_keys(state: &mut AppState, event: KeyEvent) -> Result<UiEventR
                 Ok(UiEventResult::Continue)
             }
             KeyCode::Char(character) => {
-                if let StartupState::CollectionPicker(picker) = &state.startup {
-                    let mut query = picker.query.clone();
+                if let StartupState::CollectionPicker(picker) = state.startup() {
+                    let mut query = picker.query().to_string();
                     query.push(character);
                     state.set_collection_picker_query(query);
                 }
@@ -107,9 +107,8 @@ fn handle_environment_picker_keys(
 
 fn handle_session_keys(state: &mut AppState, event: KeyEvent) -> Result<UiEventResult, StateError> {
     let focus = state
-        .session
-        .as_ref()
-        .map(|session| session.focus.clone())
+        .session()
+        .map(|session| session.focus().clone())
         .ok_or(StateError::NoCollectionLoaded)?;
 
     match event.code {
@@ -158,8 +157,7 @@ fn handle_session_keys(state: &mut AppState, event: KeyEvent) -> Result<UiEventR
 
 fn output_half_page_height(state: &AppState) -> isize {
     state
-        .session
-        .as_ref()
-        .map(|session| (session.scroll.output.viewport_height / 2).max(1) as isize)
+        .session()
+        .map(|session| (session.scroll().output.viewport_height / 2).max(1) as isize)
         .unwrap_or(1)
 }

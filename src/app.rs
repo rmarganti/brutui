@@ -17,7 +17,7 @@ use crate::runner::{
     ProcessRunner, RunCancelError, RunCommand, RunCommandBuildError, RunEvent, RunEventReceiver,
     RunStartError, build_run_command,
 };
-use crate::state::{AppState, ModalState, RunState, StartupState, StateError};
+use crate::state::{AppState, ModalState, RunState, SessionState, StartupState, StateError};
 use crate::ui::{TerminalSession, UiEventResult, handle_key_event, render};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -340,7 +340,7 @@ impl AppController {
 
     fn start_selected_run(&mut self) -> Result<(), AppControllerError> {
         if matches!(
-            self.state.session.as_ref().map(|session| &session.run),
+            self.state.session().map(SessionState::run_state),
             Some(RunState::Running(_))
         ) {
             self.state
@@ -361,11 +361,7 @@ impl AppController {
 
     fn copy_current_response_tab(&mut self) -> Result<(), AppControllerError> {
         let text = {
-            let session = self
-                .state
-                .session
-                .as_ref()
-                .ok_or(StateError::NoCollectionLoaded)?;
+            let session = self.state.session().ok_or(StateError::NoCollectionLoaded)?;
             crate::ui::current_tab_text(session)
         };
         match self.clipboard.set_text(text) {
@@ -380,7 +376,7 @@ impl AppController {
 
     fn cancel_active_run(&mut self) -> Result<(), AppControllerError> {
         if !matches!(
-            self.state.session.as_ref().map(|session| &session.run),
+            self.state.session().map(SessionState::run_state),
             Some(RunState::Running(_))
         ) {
             self.state.append_stderr("No active run to cancel.")?;
@@ -396,7 +392,7 @@ impl AppController {
 
     fn session_modal_is_clear(&self) -> bool {
         matches!(
-            self.state.session.as_ref().map(|session| &session.modal),
+            self.state.session().map(SessionState::modal),
             Some(ModalState::None)
         )
     }
@@ -404,21 +400,17 @@ impl AppController {
     fn selected_run_context(
         &self,
     ) -> Result<(&Collection, CollectionNodeId, &EnvironmentOption), StateError> {
-        let session = self
-            .state
-            .session
-            .as_ref()
-            .ok_or(StateError::NoCollectionLoaded)?;
-        let environment = session
-            .environments
-            .get(session.selected_environment_index)
-            .ok_or(StateError::InvalidEnvironmentIndex {
-                index: session.selected_environment_index,
-            })?;
+        let session = self.state.session().ok_or(StateError::NoCollectionLoaded)?;
+        let environment =
+            session
+                .selected_environment()
+                .ok_or(StateError::InvalidEnvironmentIndex {
+                    index: session.selected_environment_index(),
+                })?;
 
         Ok((
-            &session.collection,
-            session.selected_node.clone(),
+            session.collection(),
+            session.selected_node_id().clone(),
             environment,
         ))
     }
@@ -442,7 +434,7 @@ impl AppController {
 }
 
 fn selected_startup_collection(state: &AppState) -> Option<DiscoveredCollection> {
-    match &state.startup {
+    match state.startup() {
         StartupState::CollectionPicker(picker) => picker.selected_collection().cloned(),
         _ => None,
     }
@@ -536,9 +528,9 @@ mod tests {
             AppRuntime::Loaded(controller) => assert_eq!(
                 controller
                     .state
-                    .session
+                    .session()
                     .expect("session")
-                    .collection
+                    .collection()
                     .root
                     .canonicalize()
                     .expect("canonical loaded root"),
@@ -571,9 +563,9 @@ mod tests {
             AppRuntime::Loaded(controller) => assert_eq!(
                 controller
                     .state
-                    .session
+                    .session()
                     .expect("session")
-                    .collection
+                    .collection()
                     .root
                     .canonicalize()
                     .expect("canonical loaded root"),
@@ -608,9 +600,9 @@ mod tests {
             AppRuntime::Loaded(controller) => assert_eq!(
                 controller
                     .state
-                    .session
+                    .session()
                     .expect("session")
-                    .collection
+                    .collection()
                     .root
                     .canonicalize()
                     .expect("canonical loaded root"),
@@ -646,10 +638,10 @@ mod tests {
             .expect("prepare runtime");
 
         match runtime {
-            AppRuntime::Startup { state, .. } => match state.startup {
+            AppRuntime::Startup { state, .. } => match state.startup() {
                 StartupState::CollectionPicker(picker) => {
-                    assert_eq!(picker.collections.len(), 2);
-                    assert_eq!(picker.filtered.len(), 2);
+                    assert_eq!(picker.collections().len(), 2);
+                    assert_eq!(picker.filtered_indices().len(), 2);
                 }
                 other => panic!("expected collection picker, got {other:?}"),
             },
@@ -673,7 +665,7 @@ mod tests {
             .expect("prepare runtime");
 
         match runtime {
-            AppRuntime::Startup { state, .. } => match state.startup {
+            AppRuntime::Startup { state, .. } => match state.startup() {
                 StartupState::SetupMessage { message } => {
                     assert!(message.contains("No Bruno collection was discovered"));
                     assert!(message.contains("collection_dirs"));
@@ -709,7 +701,7 @@ mod tests {
             .expect("prepare runtime");
 
         match runtime {
-            AppRuntime::Startup { state, .. } => match state.startup {
+            AppRuntime::Startup { state, .. } => match state.startup() {
                 StartupState::SetupMessage { message } => {
                     assert!(message.contains("could not resolve `bru`"));
                     assert!(message.contains("BRUTUI_BRU_PATH"));
