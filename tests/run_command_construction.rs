@@ -1,4 +1,5 @@
-mod support;
+#[path = "support/fixtures.rs"]
+mod fixtures;
 
 use std::path::PathBuf;
 
@@ -6,10 +7,11 @@ use brutui::collection::model::{CollectionFormat, CollectionNodeId};
 use brutui::collection::scanner::scan_collection;
 use brutui::environments::EnvironmentOption;
 use brutui::runner::build_run_command;
+use fixtures::copy_fixture_collection;
 
 #[test]
 fn root_run_uses_recursive_collection_target_without_env() {
-    let fixture = support::copy_fixture_collection("classic", "sample-classic");
+    let fixture = copy_fixture_collection("classic", "sample-classic");
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
 
@@ -33,7 +35,7 @@ fn root_run_uses_recursive_collection_target_without_env() {
 
 #[test]
 fn folder_run_is_recursive_and_request_run_is_not() {
-    let fixture = support::copy_fixture_collection("classic", "sample-classic");
+    let fixture = copy_fixture_collection("classic", "sample-classic");
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
 
@@ -71,7 +73,7 @@ fn folder_run_is_recursive_and_request_run_is_not() {
 
 #[test]
 fn selected_environment_is_mapped_to_bru_env_flag() {
-    let fixture = support::copy_fixture_collection("opencollection", "sample-open");
+    let fixture = copy_fixture_collection("opencollection", "sample-open");
     let collection = scan_collection(&fixture.root, CollectionFormat::OpenCollectionYaml)
         .expect("scan open fixture");
     let env = EnvironmentOption {

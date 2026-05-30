@@ -1,14 +1,16 @@
-mod support;
+#[path = "support/fixtures.rs"]
+mod fixtures;
 
 use std::fs;
 
 use brutui::collection::model::CollectionFormat;
 use brutui::environments::{EnvironmentOption, discover};
+use fixtures::copy_fixture_collection;
 use tempfile::tempdir;
 
 #[test]
 fn discovers_classic_collection_local_environments() {
-    let collection = support::copy_fixture_collection("classic", "sample-classic");
+    let collection = copy_fixture_collection("classic", "sample-classic");
 
     let environments = discover(&collection.root, CollectionFormat::ClassicJson)
         .expect("discover classic environments");
@@ -32,7 +34,7 @@ fn discovers_classic_collection_local_environments() {
 
 #[test]
 fn discovers_open_collection_environments_and_uses_yaml_name_for_display() {
-    let collection = support::copy_fixture_collection("opencollection", "sample-open");
+    let collection = copy_fixture_collection("opencollection", "sample-open");
     let custom_named = collection.root.join("environments/custom.yml");
     fs::write(
         &custom_named,

@@ -1,10 +1,11 @@
-mod support;
+#[path = "support/fixtures.rs"]
+mod fixtures;
 
 use std::path::PathBuf;
 
 use brutui::collection::model::{CollectionFormat, CollectionNode, CollectionNodeId};
 use brutui::collection::scanner::scan_collection;
-use support::copy_fixture_collection;
+use fixtures::copy_fixture_collection;
 
 #[test]
 fn classic_scanner_builds_a_deterministic_filesystem_first_tree() {

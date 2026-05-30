@@ -1,11 +1,12 @@
-mod support;
+#[path = "support/fixtures.rs"]
+mod fixtures;
 
 use std::fs;
 
 use brutui::collection::model::{CollectionFormat, CollectionNode};
 use brutui::collection::scanner::scan_collection;
 use brutui::metadata::parse_request_file;
-use support::copy_fixture_collection;
+use fixtures::copy_fixture_collection;
 
 #[test]
 fn parses_classic_request_metadata_from_fixture_files() {

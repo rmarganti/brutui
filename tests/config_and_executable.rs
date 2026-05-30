@@ -1,4 +1,9 @@
-mod support;
+#[path = "support/fake_bru.rs"]
+mod fake_bru;
+#[path = "support/process.rs"]
+mod process;
+#[path = "support/temp.rs"]
+mod temp;
 
 use std::fs;
 
@@ -6,7 +11,9 @@ use brutui::config::{
     AppConfig, CONFIG_ENV_VAR, ConfigError, default_config_path, load, load_from_path,
 };
 use brutui::executable::{BRU_PATH_ENV_VAR, BruExecutableError, BruExecutableSource, resolve};
-use support::{FakeBruSpec, install_fake_bru, lock_process_state, set_env_var, temp_workspace};
+use fake_bru::{FakeBruSpec, install_fake_bru};
+use process::{lock_process_state, set_env_var};
+use temp::temp_workspace;
 
 #[test]
 fn missing_default_config_returns_defaults() {

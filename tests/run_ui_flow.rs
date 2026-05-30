@@ -1,4 +1,9 @@
-mod support;
+#[path = "support/fake_bru.rs"]
+mod fake_bru;
+#[path = "support/fixtures.rs"]
+mod fixtures;
+#[path = "support/temp.rs"]
+mod temp;
 
 use std::fs;
 use std::path::PathBuf;
@@ -18,15 +23,15 @@ use tempfile::TempDir;
 
 #[test]
 fn run_key_streams_output_and_summary_and_raw_views_render() {
-    let fixture = support::copy_fixture_collection("classic", "sample-classic");
+    let fixture = fixtures::copy_fixture_collection("classic", "sample-classic");
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
     let environments = discover_environments(&fixture.root, CollectionFormat::ClassicJson)
         .expect("discover environments");
-    let workspace = support::temp_workspace();
-    let bru = support::install_fake_bru(
+    let workspace = temp::temp_workspace();
+    let bru = fake_bru::install_fake_bru(
         &workspace,
-        &support::FakeBruSpec {
+        &fake_bru::FakeBruSpec {
             stdout: vec!["booting".to_string()],
             stderr: vec!["warning".to_string()],
             exit_code: 0,
@@ -76,15 +81,15 @@ fn run_key_streams_output_and_summary_and_raw_views_render() {
 
 #[test]
 fn failure_view_renders_failed_requests_tests_and_assertions() {
-    let fixture = support::copy_fixture_collection("classic", "sample-classic");
+    let fixture = fixtures::copy_fixture_collection("classic", "sample-classic");
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
     let environments = discover_environments(&fixture.root, CollectionFormat::ClassicJson)
         .expect("discover environments");
-    let workspace = support::temp_workspace();
-    let bru = support::install_fake_bru(
+    let workspace = temp::temp_workspace();
+    let bru = fake_bru::install_fake_bru(
         &workspace,
-        &support::FakeBruSpec {
+        &fake_bru::FakeBruSpec {
             exit_code: 1,
             report_json: Some(failure_report()),
             ..Default::default()
@@ -112,15 +117,15 @@ fn failure_view_renders_failed_requests_tests_and_assertions() {
 
 #[test]
 fn missing_report_is_shown_as_a_tool_error() {
-    let fixture = support::copy_fixture_collection("classic", "sample-classic");
+    let fixture = fixtures::copy_fixture_collection("classic", "sample-classic");
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
     let environments = discover_environments(&fixture.root, CollectionFormat::ClassicJson)
         .expect("discover environments");
-    let workspace = support::temp_workspace();
-    let bru = support::install_fake_bru(
+    let workspace = temp::temp_workspace();
+    let bru = fake_bru::install_fake_bru(
         &workspace,
-        &support::FakeBruSpec {
+        &fake_bru::FakeBruSpec {
             exit_code: 0,
             report_json: None,
             ..Default::default()
@@ -143,13 +148,13 @@ fn missing_report_is_shown_as_a_tool_error() {
 
 #[test]
 fn environment_picker_can_be_opened_selected_and_cancelled() {
-    let fixture = support::copy_fixture_collection("classic", "sample-classic");
+    let fixture = fixtures::copy_fixture_collection("classic", "sample-classic");
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
     let environments = discover_environments(&fixture.root, CollectionFormat::ClassicJson)
         .expect("discover environments");
-    let workspace = support::temp_workspace();
-    let bru = support::install_fake_bru(&workspace, &support::FakeBruSpec::default());
+    let workspace = temp::temp_workspace();
+    let bru = fake_bru::install_fake_bru(&workspace, &fake_bru::FakeBruSpec::default());
     let mut controller =
         AppController::new_loaded(collection, environments, bru).expect("create controller");
 
@@ -206,12 +211,12 @@ fn environment_picker_can_be_opened_selected_and_cancelled() {
 
 #[test]
 fn active_run_can_be_cancelled_and_rejects_overlapping_run_requests() {
-    let fixture = support::copy_fixture_collection("classic", "sample-classic");
+    let fixture = fixtures::copy_fixture_collection("classic", "sample-classic");
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
     let environments = discover_environments(&fixture.root, CollectionFormat::ClassicJson)
         .expect("discover environments");
-    let workspace = support::temp_workspace();
+    let workspace = temp::temp_workspace();
     let bru = write_executable_script(
         &workspace,
         "bru",

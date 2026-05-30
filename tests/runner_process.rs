@@ -1,4 +1,9 @@
-mod support;
+#[path = "support/fake_bru.rs"]
+mod fake_bru;
+#[path = "support/fixtures.rs"]
+mod fixtures;
+#[path = "support/temp.rs"]
+mod temp;
 
 use std::fs;
 use std::path::PathBuf;
@@ -16,10 +21,10 @@ use tempfile::TempDir;
 
 #[test]
 fn runner_streams_stdout_and_stderr_before_reporting_success() {
-    let fixture = support::copy_fixture_collection("classic", "sample-classic");
+    let fixture = fixtures::copy_fixture_collection("classic", "sample-classic");
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
-    let workspace = support::temp_workspace();
+    let workspace = temp::temp_workspace();
     let bru = write_executable_script(
         &workspace,
         "bru",
@@ -96,13 +101,13 @@ exit 0
 
 #[test]
 fn exit_code_one_with_valid_report_is_completed_with_failures() {
-    let fixture = support::copy_fixture_collection("classic", "sample-classic");
+    let fixture = fixtures::copy_fixture_collection("classic", "sample-classic");
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
-    let workspace = support::temp_workspace();
-    let bru = support::install_fake_bru(
+    let workspace = temp::temp_workspace();
+    let bru = fake_bru::install_fake_bru(
         &workspace,
-        &support::FakeBruSpec {
+        &fake_bru::FakeBruSpec {
             exit_code: 1,
             report_json: Some(failure_report()),
             ..Default::default()
@@ -138,13 +143,13 @@ fn exit_code_one_with_valid_report_is_completed_with_failures() {
 
 #[test]
 fn other_non_zero_exit_is_reported_as_tool_error() {
-    let fixture = support::copy_fixture_collection("classic", "sample-classic");
+    let fixture = fixtures::copy_fixture_collection("classic", "sample-classic");
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
-    let workspace = support::temp_workspace();
-    let bru = support::install_fake_bru(
+    let workspace = temp::temp_workspace();
+    let bru = fake_bru::install_fake_bru(
         &workspace,
-        &support::FakeBruSpec {
+        &fake_bru::FakeBruSpec {
             exit_code: 7,
             report_json: Some(success_report()),
             ..Default::default()
@@ -175,13 +180,13 @@ fn other_non_zero_exit_is_reported_as_tool_error() {
 
 #[test]
 fn missing_report_is_reported_as_tool_error() {
-    let fixture = support::copy_fixture_collection("classic", "sample-classic");
+    let fixture = fixtures::copy_fixture_collection("classic", "sample-classic");
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
-    let workspace = support::temp_workspace();
-    let bru = support::install_fake_bru(
+    let workspace = temp::temp_workspace();
+    let bru = fake_bru::install_fake_bru(
         &workspace,
-        &support::FakeBruSpec {
+        &fake_bru::FakeBruSpec {
             exit_code: 0,
             report_json: None,
             ..Default::default()
@@ -212,10 +217,10 @@ fn missing_report_is_reported_as_tool_error() {
 
 #[test]
 fn invalid_report_is_reported_as_tool_error() {
-    let fixture = support::copy_fixture_collection("classic", "sample-classic");
+    let fixture = fixtures::copy_fixture_collection("classic", "sample-classic");
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
-    let workspace = support::temp_workspace();
+    let workspace = temp::temp_workspace();
     let bru = write_executable_script(
         &workspace,
         "bru",
@@ -271,10 +276,10 @@ exit 0
 
 #[test]
 fn runner_cancels_active_process() {
-    let fixture = support::copy_fixture_collection("classic", "sample-classic");
+    let fixture = fixtures::copy_fixture_collection("classic", "sample-classic");
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
-    let workspace = support::temp_workspace();
+    let workspace = temp::temp_workspace();
     let bru = write_executable_script(
         &workspace,
         "bru",
@@ -309,10 +314,10 @@ done
 
 #[test]
 fn overlapping_runs_are_rejected() {
-    let fixture = support::copy_fixture_collection("classic", "sample-classic");
+    let fixture = fixtures::copy_fixture_collection("classic", "sample-classic");
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
-    let workspace = support::temp_workspace();
+    let workspace = temp::temp_workspace();
     let bru = write_executable_script(
         &workspace,
         "bru",
