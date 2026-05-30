@@ -17,19 +17,12 @@ use ratatui::{
 use crate::{
     collection::model::{CollectionNode, CollectionNodeId},
     state::{
-        AppState, CompletedRunStatus, ModalState, OutputLine, OutputStream, ResponseTab, RunState,
-        SessionState, StartupState, StateError,
+        AppState, CompletedRunStatus, FocusPane, ModalState, OutputLine, OutputStream, ResponseTab,
+        RunState, SessionState, StartupState, StateError,
     },
 };
 
 pub type AppTerminal = Terminal<CrosstermBackend<Stdout>>;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FocusPane {
-    CollectionTree,
-    Details,
-    Output,
-}
 
 #[derive(Debug)]
 pub struct TerminalSession {
@@ -950,10 +943,10 @@ mod tests {
         discovery::{DiscoveredCollection, DiscoverySource},
         environments::EnvironmentOption,
         metadata::{MetadataDiagnostic, RequestMetadata},
-        state::{AppState, ModalState},
+        state::{AppState, FocusPane, ModalState},
     };
 
-    use super::{FocusPane, UiEventResult, handle_key_event, render};
+    use super::{UiEventResult, handle_key_event, render};
 
     #[test]
     fn startup_collection_picker_filters_and_selects_with_keyboard() {

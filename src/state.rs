@@ -7,7 +7,6 @@ use crate::discovery::DiscoveredCollection;
 use crate::environments::EnvironmentOption;
 use crate::report::RunReport;
 use crate::runner::{RunCompletion, RunOutcome, RunToolError};
-use crate::ui::FocusPane;
 
 // ----------------------------------------------------------------
 // AppState
@@ -42,6 +41,13 @@ pub struct CollectionPickerState {
 // ----------------------------------------------------------------
 // Loaded session state
 // ----------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FocusPane {
+    CollectionTree,
+    Details,
+    Output,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionState {
@@ -659,10 +665,9 @@ mod tests {
     use crate::metadata::RequestMetadata;
     use crate::report::{ReportSummary, RunReport};
     use crate::runner::{RunCompletion, RunOutcome, RunToolError, RunToolErrorKind};
-    use crate::ui::FocusPane;
 
     use super::{
-        AppState, CompletedRunStatus, ModalState, OutputStream, ResponseTab, RunState,
+        AppState, CompletedRunStatus, FocusPane, ModalState, OutputStream, ResponseTab, RunState,
         StartupState, StateError,
     };
 
