@@ -906,13 +906,7 @@ fn focus_label(focus: &FocusPane) -> &'static str {
     }
 }
 
-fn focused_block(title: &str, focused: bool) -> Block<'static> {
-    let title = if focused {
-        format!("{title} [focused]")
-    } else {
-        title.to_string()
-    };
-
+fn focused_block<'a>(title: &'a str, focused: bool) -> Block<'a> {
     let block = Block::default().borders(Borders::ALL).title(title);
     if focused {
         block.border_style(Style::default().yellow())
