@@ -1,7 +1,7 @@
 ---
 # brutui-4gfn
 title: Introduce app dependency ports for side effects
-status: todo
+status: completed
 type: task
 priority: high
 tags:
@@ -9,7 +9,7 @@ tags:
 - testability
 - architecture
 created_at: 2026-05-30T17:23:41.926183Z
-updated_at: 2026-05-30T17:24:20.626982Z
+updated_at: 2026-05-30T17:39:22.356936Z
 parent: brutui-hrnz
 blocking:
 - brutui-0jl8
@@ -41,3 +41,21 @@ blocked_by:
 - `cargo clippy --all-targets --all-features -- -D warnings`
 - `cargo test --all-targets --all-features`
 - `ish check`
+
+
+
+## Implementation Notes
+
+- Added small app-level ports inside `src/app.rs`: `RunnerPort` abstracts run start/cancel/active checks and `ClipboardPort` abstracts response-tab copy, while production still uses `ProcessRunner` and `arboard` through thin adapters.
+- Split startup preparation so `AppBootstrap::prepare_runtime()` remains the real entrypoint but delegates to `prepare_runtime_with(LoadedConfig, cwd)`, letting startup tests exercise discovery precedence without mutating process cwd/config state.
+- Updated `src/app.rs` tests to construct `LoadedConfig` directly for most startup cases, leaving only the missing-`bru` assertion dependent on scoped process env overrides.
+- Added a controller-level seam test that uses a fake runner plus fake clipboard to verify `r` starts an injected run and `y` copies through the injected clipboard without touching `ProcessRunner` or `arboard`.
+
+## Verification
+
+- `./scripts/validate.sh`
+
+## Notes For Follow-on Work
+
+- `AppController::new_loaded_with_ports(...)` is now the narrow seam for future app/controller tests or additional side-effect ports; keep new app-level globals behind similar small traits instead of widening controller responsibilities.
+- `prepare_runtime_with(...)` is sufficient for startup precedence tests today; if later bootstrap work needs to fake discovery/config failures directly, extend that seam before reintroducing broad process-state mutation in tests.

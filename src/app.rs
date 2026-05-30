@@ -14,8 +14,8 @@ use crate::discovery::{DiscoveredCollection, DiscoveryRequest, discover};
 use crate::environments::{EnvironmentOption, discover as discover_environments};
 use crate::executable::resolve as resolve_bru;
 use crate::runner::{
-    ProcessRunner, RunCancelError, RunCommandBuildError, RunEvent, RunEventReceiver, RunStartError,
-    build_run_command,
+    ProcessRunner, RunCancelError, RunCommand, RunCommandBuildError, RunEvent, RunEventReceiver,
+    RunStartError, build_run_command,
 };
 use crate::state::{AppState, ModalState, RunState, StartupState, StateError};
 use crate::ui::{TerminalSession, UiEventResult, handle_key_event, render};
@@ -35,7 +35,8 @@ enum AppRuntime {
 pub struct AppController {
     pub state: AppState,
     bru_path: PathBuf,
-    runner: ProcessRunner,
+    runner: Box<dyn RunnerPort>,
+    clipboard: Box<dyn ClipboardPort>,
     active_events: Option<RunEventReceiver>,
 }
 
@@ -51,6 +52,41 @@ pub enum AppControllerError {
     Clipboard(String),
     #[error(transparent)]
     RunCancel(#[from] RunCancelError),
+}
+
+trait RunnerPort: std::fmt::Debug {
+    fn start(&self, command: RunCommand) -> Result<RunEventReceiver, RunStartError>;
+    fn cancel(&self) -> Result<(), RunCancelError>;
+    fn has_active_run(&self) -> bool;
+}
+
+impl RunnerPort for ProcessRunner {
+    fn start(&self, command: RunCommand) -> Result<RunEventReceiver, RunStartError> {
+        ProcessRunner::start(self, command)
+    }
+
+    fn cancel(&self) -> Result<(), RunCancelError> {
+        ProcessRunner::cancel(self)
+    }
+
+    fn has_active_run(&self) -> bool {
+        ProcessRunner::has_active_run(self)
+    }
+}
+
+trait ClipboardPort: std::fmt::Debug {
+    fn set_text(&self, text: String) -> Result<(), String>;
+}
+
+#[derive(Debug, Default)]
+struct SystemClipboard;
+
+impl ClipboardPort for SystemClipboard {
+    fn set_text(&self, text: String) -> Result<(), String> {
+        arboard::Clipboard::new()
+            .and_then(|mut clipboard| clipboard.set_text(text))
+            .map_err(|error| error.to_string())
+    }
 }
 
 impl AppBootstrap {
@@ -115,10 +151,19 @@ impl AppBootstrap {
 
     fn prepare_runtime(&self) -> Result<AppRuntime> {
         let loaded_config = load().context("failed to load Brutui configuration")?;
+        let cwd =
+            std::env::current_dir().context("failed to determine current working directory")?;
+        self.prepare_runtime_with(loaded_config, cwd)
+    }
+
+    fn prepare_runtime_with(
+        &self,
+        loaded_config: LoadedConfig,
+        cwd: PathBuf,
+    ) -> Result<AppRuntime> {
         let discovered = discover(&DiscoveryRequest {
             explicit_path: self.collection_path.clone(),
-            cwd: std::env::current_dir()
-                .context("failed to determine current working directory")?,
+            cwd,
             configured_dirs: loaded_config.config.collection_dirs.clone(),
         })
         .context("failed to discover Bruno collections")?;
@@ -187,13 +232,30 @@ impl AppController {
         environments: Vec<EnvironmentOption>,
         bru_path: impl Into<PathBuf>,
     ) -> Result<Self, StateError> {
+        Self::new_loaded_with_ports(
+            collection,
+            environments,
+            bru_path,
+            Box::new(ProcessRunner::new()),
+            Box::new(SystemClipboard),
+        )
+    }
+
+    fn new_loaded_with_ports(
+        collection: Collection,
+        environments: Vec<EnvironmentOption>,
+        bru_path: impl Into<PathBuf>,
+        runner: Box<dyn RunnerPort>,
+        clipboard: Box<dyn ClipboardPort>,
+    ) -> Result<Self, StateError> {
         let mut state = AppState::new();
         state.open_collection(collection, environments)?;
 
         Ok(Self {
             state,
             bru_path: bru_path.into(),
-            runner: ProcessRunner::new(),
+            runner,
+            clipboard,
             active_events: None,
         })
     }
@@ -306,7 +368,7 @@ impl AppController {
                 .ok_or(StateError::NoCollectionLoaded)?;
             crate::ui::current_tab_text(session)
         };
-        match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(text)) {
+        match self.clipboard.set_text(text) {
             Ok(()) => Ok(()),
             Err(error) => {
                 self.state
@@ -422,24 +484,30 @@ fn missing_bru_message(collection_root: &Path, error: &impl std::fmt::Display) -
 mod tests {
     use std::ffi::{OsStr, OsString};
     use std::fs;
-    use std::path::PathBuf;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex, MutexGuard, OnceLock, mpsc};
 
     use clap::Parser;
+    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
     use tempfile::tempdir;
 
     use crate::cli::Cli;
-    use crate::config::CONFIG_ENV_VAR;
+    use crate::collection::{model::CollectionFormat, scanner::scan_collection};
+    use crate::config::{AppConfig, LoadedConfig};
+    use crate::environments::discover as discover_environments;
     use crate::executable::BRU_PATH_ENV_VAR;
+    use crate::runner::{RunCommand, RunCompletion, RunEvent, RunOutcome};
     use crate::state::StartupState;
 
-    use super::{AppBootstrap, AppRuntime};
+    use super::{
+        AppBootstrap, AppController, AppRuntime, ClipboardPort, RunCancelError, RunEventReceiver,
+        RunStartError, RunnerPort,
+    };
 
     static PROCESS_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     #[test]
     fn explicit_collection_path_wins_at_startup() {
-        let _lock = lock_process_state();
         let workspace = tempdir().expect("temp dir");
         let explicit = classic_collection(workspace.path().join("explicit"));
         let cwd_collection = classic_collection(workspace.path().join("cwd-root"));
@@ -447,22 +515,22 @@ mod tests {
         let cwd_nested = cwd_collection.join("requests/users");
         fs::create_dir_all(&cwd_nested).expect("create cwd nested");
         let fake_bru = install_fake_bru(workspace.path().join("bru"));
-        let config_path = write_config(
-            workspace.path().join("config.toml"),
-            &[configured.as_path()],
-            None,
-        );
-        let _config = set_env_var(CONFIG_ENV_VAR, &config_path);
-        let _bru = set_env_var(BRU_PATH_ENV_VAR, &fake_bru);
-        let _cwd = set_current_dir(&cwd_nested);
 
         let cli = Cli::parse_from([
             "brutui",
             explicit.to_str().expect("explicit path should be utf-8"),
         ]);
         let bootstrap = AppBootstrap::from_cli(&cli);
-
-        let runtime = bootstrap.prepare_runtime().expect("prepare runtime");
+        let runtime = bootstrap
+            .prepare_runtime_with(
+                loaded_config(
+                    Some(workspace.path().join("config.toml")),
+                    &[configured.as_path()],
+                    Some(fake_bru.as_path()),
+                ),
+                cwd_nested,
+            )
+            .expect("prepare runtime");
 
         match runtime {
             AppRuntime::Loaded(controller) => assert_eq!(
@@ -482,22 +550,22 @@ mod tests {
 
     #[test]
     fn current_working_directory_discovery_is_config_optional_and_beats_configured_dirs() {
-        let _lock = lock_process_state();
         let workspace = tempdir().expect("temp dir");
         let cwd_collection = classic_collection(workspace.path().join("cwd-root"));
         let configured = classic_collection(workspace.path().join("configured"));
         let cwd_nested = cwd_collection.join("requests/users");
         fs::create_dir_all(&cwd_nested).expect("create cwd nested");
         let fake_bru = install_fake_bru(workspace.path().join("bru"));
-        let _clear_config = remove_env_var(CONFIG_ENV_VAR);
-        let _bru = set_env_var(BRU_PATH_ENV_VAR, &fake_bru);
-        let _cwd = set_current_dir(&cwd_nested);
         let _configured = configured;
 
         let cli = Cli::parse_from(["brutui"]);
         let bootstrap = AppBootstrap::from_cli(&cli);
-
-        let runtime = bootstrap.prepare_runtime().expect("prepare runtime");
+        let runtime = bootstrap
+            .prepare_runtime_with(
+                loaded_config(None, &[], Some(fake_bru.as_path())),
+                cwd_nested,
+            )
+            .expect("prepare runtime");
 
         match runtime {
             AppRuntime::Loaded(controller) => assert_eq!(
@@ -517,25 +585,24 @@ mod tests {
 
     #[test]
     fn configured_single_collection_auto_opens() {
-        let _lock = lock_process_state();
         let workspace = tempdir().expect("temp dir");
         let configured = classic_collection(workspace.path().join("configured"));
         let outside = workspace.path().join("outside");
         fs::create_dir_all(&outside).expect("create outside dir");
         let fake_bru = install_fake_bru(workspace.path().join("bru"));
-        let config_path = write_config(
-            workspace.path().join("config.toml"),
-            &[configured.as_path()],
-            None,
-        );
-        let _config = set_env_var(CONFIG_ENV_VAR, &config_path);
-        let _bru = set_env_var(BRU_PATH_ENV_VAR, &fake_bru);
-        let _cwd = set_current_dir(&outside);
 
         let cli = Cli::parse_from(["brutui"]);
         let bootstrap = AppBootstrap::from_cli(&cli);
-
-        let runtime = bootstrap.prepare_runtime().expect("prepare runtime");
+        let runtime = bootstrap
+            .prepare_runtime_with(
+                loaded_config(
+                    Some(workspace.path().join("config.toml")),
+                    &[configured.as_path()],
+                    Some(fake_bru.as_path()),
+                ),
+                outside,
+            )
+            .expect("prepare runtime");
 
         match runtime {
             AppRuntime::Loaded(controller) => assert_eq!(
@@ -557,27 +624,26 @@ mod tests {
 
     #[test]
     fn configured_multiple_collections_show_startup_picker() {
-        let _lock = lock_process_state();
         let workspace = tempdir().expect("temp dir");
         let first = classic_collection(workspace.path().join("collections/alpha"));
         let second = classic_collection(workspace.path().join("collections/beta"));
         let outside = workspace.path().join("outside");
         fs::create_dir_all(&outside).expect("create outside dir");
-        let config_path = write_config(
-            workspace.path().join("config.toml"),
-            &[workspace.path().join("collections").as_path()],
-            None,
-        );
-        let _config = set_env_var(CONFIG_ENV_VAR, &config_path);
-        let _bru = remove_env_var(BRU_PATH_ENV_VAR);
-        let _cwd = set_current_dir(&outside);
         let _first = first;
         let _second = second;
 
         let cli = Cli::parse_from(["brutui"]);
         let bootstrap = AppBootstrap::from_cli(&cli);
-
-        let runtime = bootstrap.prepare_runtime().expect("prepare runtime");
+        let runtime = bootstrap
+            .prepare_runtime_with(
+                loaded_config(
+                    Some(workspace.path().join("config.toml")),
+                    &[workspace.path().join("collections").as_path()],
+                    None,
+                ),
+                outside,
+            )
+            .expect("prepare runtime");
 
         match runtime {
             AppRuntime::Startup { state, .. } => match state.startup {
@@ -593,19 +659,18 @@ mod tests {
 
     #[test]
     fn startup_shows_setup_message_when_no_collection_is_found() {
-        let _lock = lock_process_state();
         let workspace = tempdir().expect("temp dir");
         let outside = workspace.path().join("outside");
         fs::create_dir_all(&outside).expect("create outside dir");
-        let config_path = write_config(workspace.path().join("config.toml"), &[], None);
-        let _config = set_env_var(CONFIG_ENV_VAR, &config_path);
-        let _bru = remove_env_var(BRU_PATH_ENV_VAR);
-        let _cwd = set_current_dir(&outside);
 
         let cli = Cli::parse_from(["brutui"]);
         let bootstrap = AppBootstrap::from_cli(&cli);
-
-        let runtime = bootstrap.prepare_runtime().expect("prepare runtime");
+        let runtime = bootstrap
+            .prepare_runtime_with(
+                loaded_config(Some(workspace.path().join("config.toml")), &[], None),
+                outside,
+            )
+            .expect("prepare runtime");
 
         match runtime {
             AppRuntime::Startup { state, .. } => match state.startup {
@@ -627,20 +692,21 @@ mod tests {
         let collection = classic_collection(workspace.path().join("sample"));
         let outside = workspace.path().join("outside");
         fs::create_dir_all(&outside).expect("create outside dir");
-        let config_path = write_config(
-            workspace.path().join("config.toml"),
-            &[collection.as_path()],
-            None,
-        );
-        let _config = set_env_var(CONFIG_ENV_VAR, &config_path);
         let _bru_override = remove_env_var(BRU_PATH_ENV_VAR);
         let _path = set_env_var("PATH", "");
-        let _cwd = set_current_dir(&outside);
 
         let cli = Cli::parse_from(["brutui"]);
         let bootstrap = AppBootstrap::from_cli(&cli);
-
-        let runtime = bootstrap.prepare_runtime().expect("prepare runtime");
+        let runtime = bootstrap
+            .prepare_runtime_with(
+                loaded_config(
+                    Some(workspace.path().join("config.toml")),
+                    &[collection.as_path()],
+                    None,
+                ),
+                outside,
+            )
+            .expect("prepare runtime");
 
         match runtime {
             AppRuntime::Startup { state, .. } => match state.startup {
@@ -655,28 +721,88 @@ mod tests {
         }
     }
 
+    #[test]
+    fn controller_uses_injected_runner_and_clipboard_ports() {
+        let workspace = tempdir().expect("temp dir");
+        let root = classic_collection(workspace.path().join("collection"));
+        let collection =
+            scan_collection(&root, CollectionFormat::ClassicJson).expect("scan test collection");
+        let environments =
+            discover_environments(&root, CollectionFormat::ClassicJson).expect("discover envs");
+        let (runner, runner_state, event_tx) = FakeRunner::boxed();
+        let (clipboard, clipboard_state) = FakeClipboard::boxed();
+        let mut controller = AppController::new_loaded_with_ports(
+            collection,
+            environments,
+            "/tmp/fake-bru",
+            runner,
+            clipboard,
+        )
+        .expect("create controller");
+
+        controller
+            .handle_key_event(press_char('r'))
+            .expect("start run through fake runner");
+        assert_eq!(
+            runner_state
+                .lock()
+                .expect("runner state")
+                .started_commands
+                .len(),
+            1
+        );
+
+        runner_state.lock().expect("runner state").active = false;
+        event_tx
+            .send(RunEvent::Stdout("booting".to_string()))
+            .expect("send stdout event");
+        event_tx
+            .send(RunEvent::Finished(RunCompletion {
+                exit_code: None,
+                report_path: PathBuf::from("/tmp/report.json"),
+                outcome: RunOutcome::Cancelled,
+            }))
+            .expect("send completion event");
+        controller.pump_run_events().expect("pump events");
+
+        controller
+            .handle_key_event(press_char('y'))
+            .expect("copy through fake clipboard");
+        let copied = clipboard_state.lock().expect("clipboard state");
+        assert_eq!(copied.len(), 1);
+        assert!(copied[0].contains("Status: cancelled"));
+    }
+
+    fn press_char(ch: char) -> KeyEvent {
+        let mut event = KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE);
+        event.kind = KeyEventKind::Press;
+        event
+    }
+
     fn classic_collection(path: PathBuf) -> PathBuf {
         fs::create_dir_all(&path).expect("create collection dir");
+        fs::create_dir_all(path.join("environments")).expect("create env dir");
         fs::write(path.join("bruno.json"), "{}\n").expect("write bruno marker");
         fs::write(path.join("request.bru"), "meta {\n  name: sample\n}\n").expect("write request");
+        fs::write(path.join("environments/dev.bru"), "vars: {}\n").expect("write env");
         path
     }
 
-    fn write_config(
-        path: PathBuf,
-        collection_dirs: &[&std::path::Path],
-        bru_path: Option<&std::path::Path>,
-    ) -> PathBuf {
-        let dirs = collection_dirs
-            .iter()
-            .map(|dir| format!("\"{}\"", dir.display()))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let bru_line = bru_path
-            .map(|path| format!("bru_path = \"{}\"\n", path.display()))
-            .unwrap_or_default();
-        fs::write(&path, format!("collection_dirs = [{dirs}]\n{bru_line}")).expect("write config");
-        path
+    fn loaded_config(
+        path: Option<PathBuf>,
+        collection_dirs: &[&Path],
+        bru_path: Option<&Path>,
+    ) -> LoadedConfig {
+        LoadedConfig {
+            path,
+            config: AppConfig {
+                collection_dirs: collection_dirs
+                    .iter()
+                    .map(|path| path.to_path_buf())
+                    .collect(),
+                bru_path: bru_path.map(Path::to_path_buf),
+            },
+        }
     }
 
     fn install_fake_bru(path: PathBuf) -> PathBuf {
@@ -703,22 +829,7 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    struct CurrentDirGuard {
-        previous: PathBuf,
-    }
-
-    impl Drop for CurrentDirGuard {
-        fn drop(&mut self) {
-            std::env::set_current_dir(&self.previous).expect("restore current dir");
-        }
-    }
-
-    fn set_current_dir(path: &std::path::Path) -> CurrentDirGuard {
-        let previous = std::env::current_dir().expect("current dir");
-        std::env::set_current_dir(path).expect("set current dir");
-        CurrentDirGuard { previous }
-    }
-
+    #[derive(Debug)]
     struct EnvVarGuard {
         key: String,
         previous: Option<OsString>,
@@ -745,5 +856,79 @@ mod tests {
         let previous = std::env::var_os(&key);
         unsafe { std::env::remove_var(&key) };
         EnvVarGuard { key, previous }
+    }
+
+    #[derive(Debug, Default)]
+    struct FakeClipboard {
+        copied: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl FakeClipboard {
+        fn boxed() -> (Box<dyn ClipboardPort>, Arc<Mutex<Vec<String>>>) {
+            let clipboard = Self::default();
+            let state = Arc::clone(&clipboard.copied);
+            (Box::new(clipboard), state)
+        }
+    }
+
+    impl ClipboardPort for FakeClipboard {
+        fn set_text(&self, text: String) -> Result<(), String> {
+            self.copied.lock().expect("clipboard state").push(text);
+            Ok(())
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct FakeRunnerState {
+        started_commands: Vec<RunCommand>,
+        active: bool,
+        event_rx: Option<RunEventReceiver>,
+    }
+
+    #[derive(Debug)]
+    struct FakeRunner {
+        state: Arc<Mutex<FakeRunnerState>>,
+    }
+
+    impl FakeRunner {
+        fn boxed() -> (
+            Box<dyn RunnerPort>,
+            Arc<Mutex<FakeRunnerState>>,
+            mpsc::Sender<RunEvent>,
+        ) {
+            let (event_tx, event_rx) = mpsc::channel();
+            let state = Arc::new(Mutex::new(FakeRunnerState {
+                event_rx: Some(event_rx),
+                ..FakeRunnerState::default()
+            }));
+            (
+                Box::new(Self {
+                    state: Arc::clone(&state),
+                }),
+                state,
+                event_tx,
+            )
+        }
+    }
+
+    impl RunnerPort for FakeRunner {
+        fn start(&self, command: RunCommand) -> Result<RunEventReceiver, RunStartError> {
+            let mut state = self.state.lock().expect("runner state");
+            state.started_commands.push(command);
+            state.active = true;
+            state
+                .event_rx
+                .take()
+                .ok_or(RunStartError::ActiveRunInProgress)
+        }
+
+        fn cancel(&self) -> Result<(), RunCancelError> {
+            self.state.lock().expect("runner state").active = false;
+            Ok(())
+        }
+
+        fn has_active_run(&self) -> bool {
+            self.state.lock().expect("runner state").active
+        }
     }
 }
