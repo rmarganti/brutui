@@ -382,10 +382,8 @@ fn parse_request(index: usize, request: &Value) -> Result<RequestResult, ReportP
         size_bytes: first_u64(map, &["size", "sizeBytes", "responseSize"]).or_else(|| {
             response.and_then(|map| first_u64(map, &["size", "sizeBytes", "responseSize"]))
         }),
-        request_body: request.and_then(|map| first_body(map)),
-        response_body: response
-            .and_then(|map| first_body(map))
-            .or_else(|| first_body(map)),
+        request_body: request.and_then(first_body),
+        response_body: response.and_then(first_body).or_else(|| first_body(map)),
         request_headers: request
             .and_then(|map| parse_headers_value(map.get("headers")))
             .unwrap_or_default(),

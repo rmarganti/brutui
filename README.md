@@ -84,11 +84,28 @@ A copy is also provided at [`config/brutui.example.toml`](config/brutui.example.
 - `e` open environment picker
 - `r` run the selected root, folder, or request
 - `c` cancel the active run
-- `1` summary view
-- `2` failures view
-- `3` raw output view
+- `1` response body view
+- `2` response/request headers view
+- `3` tests/assertions/errors view
+- `[` / `]` move between requests in the latest report
+- `y` copy the current response tab text
 - `?` help overlay
 - `q` quit
+
+## Validation
+
+Run the full local quality gate with:
+
+```bash
+./scripts/validate.sh
+```
+
+It runs:
+
+- `cargo fmt --all -- --check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all-targets --all-features`
+- `ish check`
 
 ## Notes
 
