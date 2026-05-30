@@ -115,6 +115,7 @@ fn handle_session_keys(state: &mut AppState, event: KeyEvent) -> Result<UiEventR
         KeyCode::Char('q') | KeyCode::Esc => return Ok(UiEventResult::Quit),
         KeyCode::Char('?') => state.open_help()?,
         KeyCode::Tab => state.cycle_focus_forward()?,
+        KeyCode::BackTab => state.cycle_focus_backward()?,
         KeyCode::Up | KeyCode::Char('k') if focus == FocusPane::CollectionTree => {
             state.move_selection_previous()?
         }

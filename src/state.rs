@@ -307,6 +307,16 @@ impl AppState {
         Ok(())
     }
 
+    pub fn cycle_focus_backward(&mut self) -> Result<(), StateError> {
+        let session = self.session_mut()?;
+        session.focus = match session.focus {
+            FocusPane::CollectionTree => FocusPane::Output,
+            FocusPane::Details => FocusPane::CollectionTree,
+            FocusPane::Output => FocusPane::Details,
+        };
+        Ok(())
+    }
+
     pub fn move_selection_next(&mut self) -> Result<(), StateError> {
         let session = self.session_mut()?;
         let current_index = session
@@ -899,6 +909,31 @@ mod tests {
             &FocusPane::Output
         );
         state.cycle_focus_forward().expect("focus tree");
+        assert_eq!(
+            state.session().expect("session").focus(),
+            &FocusPane::CollectionTree
+        );
+    }
+
+    #[test]
+    fn focus_cycles_backward_between_panes() {
+        let mut state = AppState::new();
+        state
+            .open_collection(sample_collection(), sample_environments())
+            .expect("open collection");
+
+        // Starts at CollectionTree, going backward should go to Output
+        state.cycle_focus_backward().expect("focus output");
+        assert_eq!(
+            state.session().expect("session").focus(),
+            &FocusPane::Output
+        );
+        state.cycle_focus_backward().expect("focus details");
+        assert_eq!(
+            state.session().expect("session").focus(),
+            &FocusPane::Details
+        );
+        state.cycle_focus_backward().expect("focus tree");
         assert_eq!(
             state.session().expect("session").focus(),
             &FocusPane::CollectionTree
