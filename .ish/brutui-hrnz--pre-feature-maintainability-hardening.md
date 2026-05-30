@@ -1,7 +1,7 @@
 ---
 # brutui-hrnz
 title: Pre-feature maintainability hardening
-status: todo
+status: completed
 type: epic
 priority: high
 tags:
@@ -9,7 +9,7 @@ tags:
 - maintainability
 - pre-feature
 created_at: 2026-05-30T17:22:58.009946Z
-updated_at: 2026-05-30T17:22:58.009946Z
+updated_at: 2026-05-30T17:59:34.732250Z
 ---
 
 ## Context
@@ -30,3 +30,21 @@ The epic is complete when all child ishes are completed and the repo passes:
 - `cargo clippy --all-targets --all-features -- -D warnings`
 - `cargo test --all-targets --all-features`
 - `ish check`
+
+## Implementation Notes
+
+- Completed the maintainability hardening sequence across app, state, UI, collection, and runner seams without changing the external v1 feature set.
+- Key outcomes: UI split into focused modules, render path made pure with explicit measurements, app side effects placed behind small ports, state mutation encapsulated behind selectors/transitions, collection lookup moved to an indexed read model, and runner internals split into command/process/report-path/classification responsibilities.
+- The final runner refactor (`brutui-8k2u`) closed the last remaining hotspot from the original analysis, leaving the codebase in a better position for future feature work like richer tree behavior and more sophisticated run execution.
+
+## Verification
+
+- `cargo fmt --all -- --check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all-targets --all-features`
+- `cargo build --all-features`
+- `ish check`
+
+## Notes For Follow-on Work
+
+- Future feature ishes should build on the narrowed seams introduced here instead of reintroducing cross-module state mutation or concrete global side effects into controller/rendering code.

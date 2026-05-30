@@ -1,7 +1,7 @@
 ---
 # brutui-8k2u
 title: Split runner command process and classification responsibilities
-status: todo
+status: completed
 type: task
 priority: normal
 tags:
@@ -9,7 +9,7 @@ tags:
 - architecture
 - refactor
 created_at: 2026-05-30T17:24:03.256933Z
-updated_at: 2026-05-30T17:24:03.256933Z
+updated_at: 2026-05-30T17:59:19.069618Z
 parent: brutui-hrnz
 blocked_by:
 - brutui-ev42
@@ -43,3 +43,23 @@ blocked_by:
 - `cargo clippy --all-targets --all-features -- -D warnings`
 - `cargo test --all-targets --all-features`
 - `ish check`
+
+## Implementation Notes
+
+- Split `src/runner.rs` into focused internal modules: `runner::command` for pure command construction, `runner::report_path` for temp report naming, `runner::process` for concrete process/event streaming, and `runner::completion` for exit/report classification.
+- Kept the public runner API stable (`ProcessRunner`, `build_run_command`, run event/completion types) so app/controller code did not need behavioral changes while the internals became smaller and easier to test in isolation.
+- Added completion-classification unit coverage that exercises success, failed-tests, missing-report, invalid-report, non-zero-exit, and cancellation paths without spawning Bruno processes.
+- Retained the existing process-level integration coverage in `tests/runner_process.rs` and command-construction coverage in `tests/run_command_construction.rs` to prove the refactor preserved the Bruno CLI contract and live event behavior.
+
+## Verification
+
+- `cargo fmt --all -- --check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all-targets --all-features`
+- `cargo build --all-features`
+- `ish check`
+
+## Notes For Follow-on Work
+
+- If future runner work needs timeouts, retries, alternate report destinations, or async execution, extend the focused `runner::process`, `runner::report_path`, or `runner::completion` modules rather than re-centralizing those concerns in the root module.
+- `runner::completion::classify_completion(...)` is now the narrow seam for behavior-only tests around exit-code/report interpretation; keep new classification rules there so they remain testable without process spawning.
