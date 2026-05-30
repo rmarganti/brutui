@@ -1,7 +1,6 @@
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
-    style::{Modifier, Style, Stylize},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
@@ -14,40 +13,44 @@ use crate::{
     },
 };
 
-use super::text::current_tab_text;
+use super::{text::current_tab_text, theme::Theme};
 
-pub fn render(frame: &mut Frame, state: &AppState) -> ViewMeasurements {
+pub fn render(frame: &mut Frame, state: &AppState, theme: &Theme) -> ViewMeasurements {
     match state.session() {
-        Some(session) => render_session(frame, session),
+        Some(session) => render_session(frame, session, theme),
         None => {
-            render_startup(frame, state.startup());
+            render_startup(frame, state.startup(), theme);
             ViewMeasurements::default()
         }
     }
 }
 
-fn render_startup(frame: &mut Frame, startup: &StartupState) {
+fn render_startup(frame: &mut Frame, startup: &StartupState, theme: &Theme) {
     match startup {
-        StartupState::CollectionPicker(picker) => render_collection_picker(frame, picker),
+        StartupState::CollectionPicker(picker) => render_collection_picker(frame, picker, theme),
         StartupState::Discovering => {
-            render_startup_message(frame, "Discovering Bruno collections...")
+            render_startup_message(frame, "Discovering Bruno collections...", theme)
         }
-        StartupState::Ready => render_startup_message(frame, "Preparing session..."),
-        StartupState::SetupMessage { message } => render_startup_message(frame, message),
+        StartupState::Ready => render_startup_message(frame, "Preparing session...", theme),
+        StartupState::SetupMessage { message } => render_startup_message(frame, message, theme),
     }
 }
 
-fn render_startup_message(frame: &mut Frame, message: &str) {
+fn render_startup_message(frame: &mut Frame, message: &str, theme: &Theme) {
     frame.render_widget(
         Paragraph::new(message)
-            .block(Block::default().borders(Borders::ALL).title("Brutui"))
+            .block(themed_block("Brutui", theme))
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true }),
         frame.area(),
     );
 }
 
-fn render_collection_picker(frame: &mut Frame, picker: &crate::state::CollectionPickerState) {
+fn render_collection_picker(
+    frame: &mut Frame,
+    picker: &crate::state::CollectionPickerState,
+    theme: &Theme,
+) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -59,7 +62,7 @@ fn render_collection_picker(frame: &mut Frame, picker: &crate::state::Collection
 
     frame.render_widget(
         Paragraph::new(format!("Search: {}", picker.query()))
-            .block(Block::default().borders(Borders::ALL).title("Brutui"))
+            .block(themed_block("Brutui", theme))
             .wrap(Wrap { trim: false }),
         chunks[0],
     );
@@ -79,9 +82,9 @@ fn render_collection_picker(frame: &mut Frame, picker: &crate::state::Collection
                     "  "
                 };
                 let style = if filtered_index == picker.selected_filtered_index() {
-                    Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+                    theme.focused_selected_item
                 } else {
-                    Style::default()
+                    theme.base
                 };
                 ListItem::new(Line::styled(
                     format!("{prefix}{}", collection.root.display()),
@@ -92,22 +95,22 @@ fn render_collection_picker(frame: &mut Frame, picker: &crate::state::Collection
     };
 
     frame.render_widget(
-        List::new(items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Collection picker"),
-        ),
+        List::new(items).block(themed_block("Collection picker", theme)),
         chunks[1],
     );
     frame.render_widget(
         Paragraph::new("Type to filter • Enter to open • ↑/↓ or j/k to move • q or Esc to quit")
-            .block(Block::default().borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(theme.panel_border),
+            )
             .wrap(Wrap { trim: false }),
         chunks[2],
     );
 }
 
-fn render_session(frame: &mut Frame, session: &SessionState) -> ViewMeasurements {
+fn render_session(frame: &mut Frame, session: &SessionState, theme: &Theme) -> ViewMeasurements {
     let root_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(1)])
@@ -122,18 +125,18 @@ fn render_session(frame: &mut Frame, session: &SessionState) -> ViewMeasurements
         .constraints([Constraint::Length(12), Constraint::Min(0)])
         .split(content_chunks[1]);
 
-    render_collection_tree(frame, content_chunks[0], session);
-    render_details_pane(frame, right_chunks[0], session);
-    let output = render_output_pane(frame, right_chunks[1], session);
+    render_collection_tree(frame, content_chunks[0], session, theme);
+    render_details_pane(frame, right_chunks[0], session, theme);
+    let output = render_output_pane(frame, right_chunks[1], session, theme);
     render_footer(frame, root_chunks[1], session);
-    render_modal(frame, session);
+    render_modal(frame, session, theme);
 
     ViewMeasurements {
         output: Some(output),
     }
 }
 
-fn render_collection_tree(frame: &mut Frame, area: Rect, session: &SessionState) {
+fn render_collection_tree(frame: &mut Frame, area: Rect, session: &SessionState, theme: &Theme) {
     let selected_node = session.selected_node_id();
     let items = session
         .collection()
@@ -157,11 +160,11 @@ fn render_collection_tree(frame: &mut Frame, area: Rect, session: &SessionState)
             };
             let selected = node.id() == *selected_node;
             let style = if selected && session.focus() == &FocusPane::CollectionTree {
-                Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+                theme.focused_selected_item
             } else if selected {
-                Style::default().add_modifier(Modifier::REVERSED)
+                theme.selected_item
             } else {
-                Style::default()
+                theme.base
             };
 
             ListItem::new(Line::styled(
@@ -174,17 +177,18 @@ fn render_collection_tree(frame: &mut Frame, area: Rect, session: &SessionState)
     let list = List::new(items).block(focused_block(
         "Collection tree",
         session.focus() == &FocusPane::CollectionTree,
+        theme,
     ));
 
     frame.render_widget(list, area);
 }
 
-fn render_details_pane(frame: &mut Frame, area: Rect, session: &SessionState) {
+fn render_details_pane(frame: &mut Frame, area: Rect, session: &SessionState, theme: &Theme) {
     let lines = if let Some(node) = session.selected_node() {
         let mut lines = vec![
             Line::from(vec![Span::styled(
                 selected_node_label(&node.id()),
-                Style::default().add_modifier(Modifier::BOLD),
+                theme.emphasized_text,
             )]),
             Line::from(format!("Name: {}", node.display_name())),
             Line::from(format!("Path: {}", node.path().display())),
@@ -246,6 +250,7 @@ fn render_details_pane(frame: &mut Frame, area: Rect, session: &SessionState) {
             .block(focused_block(
                 "Details",
                 session.focus() == &FocusPane::Details,
+                theme,
             ))
             .wrap(Wrap { trim: false }),
         area,
@@ -256,6 +261,7 @@ fn render_output_pane(
     frame: &mut Frame,
     area: Rect,
     session: &SessionState,
+    theme: &Theme,
 ) -> OutputScrollMeasurements {
     let result_count = session.response_result_count();
     let result_position = if result_count == 0 {
@@ -295,7 +301,11 @@ fn render_output_pane(
 
     frame.render_widget(
         Paragraph::new(lines)
-            .block(focused_block(&title, session.focus() == &FocusPane::Output))
+            .block(focused_block(
+                &title,
+                session.focus() == &FocusPane::Output,
+                theme,
+            ))
             .wrap(Wrap { trim: false })
             .scroll((vertical_offset, 0)),
         area,
@@ -313,8 +323,6 @@ fn render_footer(frame: &mut Frame, area: Rect, session: &SessionState) {
     };
 
     let footer = Paragraph::new(Line::from(vec![
-        Span::raw(format!("Focus: {}", focus_label(session.focus()))),
-        Span::raw("  •  "),
         Span::raw(format!("Env: {environment}")),
         Span::raw("  •  "),
         Span::raw(format!("Run: {run_state}")),
@@ -326,7 +334,7 @@ fn render_footer(frame: &mut Frame, area: Rect, session: &SessionState) {
     frame.render_widget(footer, area);
 }
 
-fn render_modal(frame: &mut Frame, session: &SessionState) {
+fn render_modal(frame: &mut Frame, session: &SessionState, theme: &Theme) {
     match session.modal() {
         ModalState::None => {}
         ModalState::Help => {
@@ -348,7 +356,7 @@ fn render_modal(frame: &mut Frame, session: &SessionState) {
                     Line::from("Esc        Close modal"),
                     Line::from("q          Quit Brutui"),
                 ])
-                .block(Block::default().borders(Borders::ALL).title("Help"))
+                .block(themed_block("Help", theme))
                 .wrap(Wrap { trim: false }),
                 area,
             );
@@ -366,9 +374,9 @@ fn render_modal(frame: &mut Frame, session: &SessionState) {
                     let prefix = if highlighted { "> " } else { "  " };
                     let selected_suffix = if selected { " (current)" } else { "" };
                     let style = if highlighted {
-                        Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+                        theme.focused_selected_item
                     } else {
-                        Style::default()
+                        theme.base
                     };
                     ListItem::new(Line::styled(
                         format!("{prefix}{}{}", environment.display_name, selected_suffix),
@@ -377,11 +385,10 @@ fn render_modal(frame: &mut Frame, session: &SessionState) {
                 })
                 .collect::<Vec<_>>();
             frame.render_widget(
-                List::new(items).block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("Environment picker • Enter choose • Esc cancel"),
-                ),
+                List::new(items).block(themed_block(
+                    "Environment picker • Enter choose • Esc cancel",
+                    theme,
+                )),
                 area,
             );
         }
@@ -422,18 +429,17 @@ fn selected_node_label(node: &CollectionNodeId) -> &'static str {
     }
 }
 
-fn focus_label(focus: &FocusPane) -> &'static str {
-    match focus {
-        FocusPane::CollectionTree => "tree",
-        FocusPane::Details => "details",
-        FocusPane::Output => "output",
-    }
+fn themed_block<'a>(title: &'a str, theme: &Theme) -> Block<'a> {
+    Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(theme.panel_border)
 }
 
-fn focused_block<'a>(title: &'a str, focused: bool) -> Block<'a> {
-    let block = Block::default().borders(Borders::ALL).title(title);
+fn focused_block<'a>(title: &'a str, focused: bool, theme: &Theme) -> Block<'a> {
+    let block = themed_block(title, theme);
     if focused {
-        block.border_style(Style::default().yellow())
+        block.border_style(theme.focused_panel_border)
     } else {
         block
     }

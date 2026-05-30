@@ -13,6 +13,7 @@ use brutui::config::{
 use brutui::executable::{BRU_PATH_ENV_VAR, BruExecutableError, BruExecutableSource, resolve};
 use fake_bru::{FakeBruSpec, install_fake_bru};
 use process::{lock_process_state, set_env_var};
+use ratatui::style::Color;
 use temp::temp_workspace;
 
 #[test]
@@ -73,6 +74,51 @@ fn invalid_toml_reports_the_config_path() {
 
     match error {
         ConfigError::Parse { path, .. } => assert_eq!(path, config_path),
+        other => panic!("unexpected error: {other:?}"),
+    }
+}
+
+#[test]
+fn theme_config_partial_overrides_merge_with_defaults() {
+    let workspace = temp_workspace();
+    let config_path = workspace.path().join("config.toml");
+    fs::write(
+        &config_path,
+        "[theme]\nfocused_panel_border = { fg = \"#f0f0f0\" }\nfocused_selected_item = { fg = \"cyan\", bold = false }\n",
+    )
+    .expect("write themed config");
+
+    let config = load_from_path(&config_path).expect("load themed config");
+
+    assert_eq!(
+        config.theme.focused_panel_border.fg.unwrap().color(),
+        Color::Rgb(240, 240, 240)
+    );
+    assert_eq!(
+        config.theme.focused_selected_item.fg.unwrap().color(),
+        Color::Cyan
+    );
+    assert!(!config.theme.focused_selected_item.bold);
+    assert!(config.theme.focused_selected_item.reversed);
+}
+
+#[test]
+fn invalid_theme_color_reports_the_config_path() {
+    let workspace = temp_workspace();
+    let config_path = workspace.path().join("config.toml");
+    fs::write(
+        &config_path,
+        "[theme]\nfocused_panel_border = { fg = \"yelow\" }\n",
+    )
+    .expect("write invalid themed config");
+
+    let error = load_from_path(&config_path).expect_err("config should fail");
+
+    match error {
+        ConfigError::Parse { path, source } => {
+            assert_eq!(path, config_path);
+            assert!(source.to_string().contains("unknown color `yelow`"));
+        }
         other => panic!("unexpected error: {other:?}"),
     }
 }

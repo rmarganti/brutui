@@ -7,3 +7,12 @@ collection_dirs = [
 # Optional explicit Bruno CLI executable path.
 # If omitted, Brutui falls back to BRUTUI_BRU_PATH and then PATH lookup.
 bru_path = "/opt/homebrew/bin/bru"
+
+# Optional TUI theme overrides. Any omitted style or field keeps the default.
+# Colors may be named terminal colors (for example, yellow, cyan, light_blue)
+# or RGB hex values in #RRGGBB format.
+[theme]
+focused_panel_border = { fg = "yellow" }
+selected_item = { reversed = true }
+focused_selected_item = { fg = "#f0f0f0", reversed = true, bold = true }
+emphasized_text = { bold = true }

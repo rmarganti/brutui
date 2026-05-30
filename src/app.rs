@@ -18,7 +18,7 @@ use crate::runner::{
     RunStartError, build_run_command,
 };
 use crate::state::{AppState, ModalState, RunState, SessionState, StartupState, StateError};
-use crate::ui::{TerminalSession, UiEventResult, handle_key_event, render};
+use crate::ui::{TerminalSession, Theme, UiEventResult, handle_key_event, render};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppBootstrap {
@@ -27,8 +27,11 @@ pub struct AppBootstrap {
 
 #[derive(Debug)]
 enum AppRuntime {
-    Startup { state: AppState, config: AppConfig },
-    Loaded(AppController),
+    Startup {
+        state: Box<AppState>,
+        config: Box<AppConfig>,
+    },
+    Loaded(Box<AppController>),
 }
 
 #[derive(Debug)]
@@ -38,6 +41,7 @@ pub struct AppController {
     runner: Box<dyn RunnerPort>,
     clipboard: Box<dyn ClipboardPort>,
     active_events: Option<RunEventReceiver>,
+    theme: Theme,
 }
 
 #[derive(Debug, Error)]
@@ -102,11 +106,12 @@ impl AppBootstrap {
 
         loop {
             match &mut runtime {
-                AppRuntime::Startup { state, .. } => {
+                AppRuntime::Startup { state, config } => {
+                    let theme = Theme::from_config(&config.theme);
                     let mut measurements = None;
                     terminal
                         .terminal_mut()
-                        .draw(|frame| measurements = Some(render(frame, state)))
+                        .draw(|frame| measurements = Some(render(frame, state, &theme)))
                         .context("failed to render startup UI")?;
                     state.apply_view_measurements(
                         measurements.expect("startup render should produce measurements"),
@@ -117,7 +122,9 @@ impl AppBootstrap {
                     let mut measurements = None;
                     terminal
                         .terminal_mut()
-                        .draw(|frame| measurements = Some(render(frame, &controller.state)))
+                        .draw(|frame| {
+                            measurements = Some(render(frame, &controller.state, &controller.theme))
+                        })
                         .context("failed to render application UI")?;
                     controller.state.apply_view_measurements(
                         measurements.expect("loaded render should produce measurements"),
@@ -135,7 +142,7 @@ impl AppBootstrap {
             };
 
             match &mut runtime {
-                AppRuntime::Startup { state, config } => {
+                AppRuntime::Startup { state, config, .. } => {
                     match handle_key_event(state, key_event)? {
                         UiEventResult::Continue => {}
                         UiEventResult::Quit => break,
@@ -143,7 +150,8 @@ impl AppBootstrap {
                             let Some(collection) = selected_startup_collection(state) else {
                                 continue;
                             };
-                            runtime = self.load_collection_runtime(collection, config.clone())?;
+                            runtime =
+                                self.load_collection_runtime(collection, config.as_ref().clone())?;
                         }
                     }
                 }
@@ -187,14 +195,19 @@ impl AppBootstrap {
         let config = loaded_config.config;
         match discovered.as_slice() {
             [] => Ok(AppRuntime::Startup {
-                state: setup_message_state(no_collection_message(loaded_config.path.as_deref())),
-                config,
+                state: Box::new(setup_message_state(no_collection_message(
+                    loaded_config.path.as_deref(),
+                ))),
+                config: Box::new(config),
             }),
             [collection] => self.load_collection_runtime(collection.clone(), config),
             _ => {
                 let mut state = AppState::new();
                 state.show_collection_picker(discovered);
-                Ok(AppRuntime::Startup { state, config })
+                Ok(AppRuntime::Startup {
+                    state: Box::new(state),
+                    config: Box::new(config),
+                })
             }
         }
     }
@@ -208,8 +221,11 @@ impl AppBootstrap {
             Ok(bru) => bru,
             Err(error) => {
                 return Ok(AppRuntime::Startup {
-                    state: setup_message_state(missing_bru_message(&discovered.root, &error)),
-                    config,
+                    state: Box::new(setup_message_state(missing_bru_message(
+                        &discovered.root,
+                        &error,
+                    ))),
+                    config: Box::new(config),
                 });
             }
         };
@@ -226,11 +242,9 @@ impl AppBootstrap {
                 )
             })?;
 
-        Ok(AppRuntime::Loaded(AppController::new_loaded(
-            collection,
-            environments,
-            bru.path,
-        )?))
+        let mut controller = AppController::new_loaded(collection, environments, bru.path)?;
+        controller.theme = Theme::from_config(&config.theme);
+        Ok(AppRuntime::Loaded(Box::new(controller)))
     }
 }
 
@@ -265,6 +279,7 @@ impl AppController {
             runner,
             clipboard,
             active_events: None,
+            theme: Theme::default(),
         })
     }
 
@@ -801,6 +816,7 @@ mod tests {
                     .map(|path| path.to_path_buf())
                     .collect(),
                 bru_path: bru_path.map(Path::to_path_buf),
+                theme: crate::ui::ThemeConfig::default(),
             },
         }
     }

@@ -2,11 +2,13 @@ mod input;
 mod render;
 mod terminal;
 mod text;
+pub mod theme;
 
 pub use input::{UiEventResult, handle_key_event};
 pub use render::render;
 pub use terminal::{AppTerminal, TerminalSession};
 pub use text::current_tab_text;
+pub use theme::{Theme, ThemeConfig};
 
 #[cfg(test)]
 mod tests {
@@ -26,7 +28,7 @@ mod tests {
         state::{AppState, FocusPane, ModalState},
     };
 
-    use super::{UiEventResult, handle_key_event, render};
+    use super::{Theme, UiEventResult, handle_key_event, render};
 
     #[test]
     fn startup_collection_picker_filters_and_selects_with_keyboard() {
@@ -117,7 +119,7 @@ mod tests {
 
             terminal
                 .draw(|frame| {
-                    render(frame, &state);
+                    render(frame, &state, &Theme::default());
                 })
                 .expect("render UI");
 
@@ -156,7 +158,7 @@ mod tests {
 
         terminal
             .draw(|frame| {
-                let measurements = render(frame, &state);
+                let measurements = render(frame, &state, &Theme::default());
                 assert!(measurements.output.is_some());
             })
             .expect("render UI");
@@ -192,7 +194,7 @@ mod tests {
 
         terminal
             .draw(|frame| {
-                render(frame, &state);
+                render(frame, &state, &Theme::default());
             })
             .expect("render UI");
 

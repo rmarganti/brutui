@@ -64,9 +64,18 @@ collection_dirs = [
 ]
 
 bru_path = "/opt/homebrew/bin/bru"
+
+# Optional TUI theme overrides. Omitted fields keep their defaults.
+[theme]
+focused_panel_border = { fg = "yellow" }
+selected_item = { reversed = true }
+focused_selected_item = { fg = "#f0f0f0", reversed = true, bold = true }
+emphasized_text = { bold = true }
 ```
 
 A copy is also provided at [`config/brutui.example.toml`](config/brutui.example.toml).
+
+Theme colors may be named terminal colors (such as `yellow`, `cyan`, or `light_blue`) or RGB hex values in `#RRGGBB` format. Invalid color names are reported as configuration errors on startup.
 
 ## Keyboard usage
 

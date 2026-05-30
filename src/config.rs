@@ -2,16 +2,42 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use directories::ProjectDirs;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
+
+use crate::ui::theme::{PartialThemeConfig, ThemeConfig};
 
 pub const CONFIG_ENV_VAR: &str = "BRUTUI_CONFIG";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 pub struct AppConfig {
     #[serde(default)]
     pub collection_dirs: Vec<PathBuf>,
     pub bru_path: Option<PathBuf>,
+    pub theme: ThemeConfig,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawAppConfig {
+    #[serde(default)]
+    collection_dirs: Vec<PathBuf>,
+    bru_path: Option<PathBuf>,
+    #[serde(default)]
+    theme: PartialThemeConfig,
+}
+
+impl<'de> Deserialize<'de> for AppConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawAppConfig::deserialize(deserializer)?;
+        Ok(Self {
+            collection_dirs: raw.collection_dirs,
+            bru_path: raw.bru_path,
+            theme: ThemeConfig::default().merge(raw.theme),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

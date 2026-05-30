@@ -15,7 +15,7 @@ use brutui::collection::model::CollectionFormat;
 use brutui::collection::scanner::scan_collection;
 use brutui::environments::discover as discover_environments;
 use brutui::state::{CompletedRunStatus, ModalState, OutputStream};
-use brutui::ui::render;
+use brutui::ui::{Theme, render};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
 use serde_json::json;
@@ -314,7 +314,7 @@ fn render_to_string(state: &brutui::state::AppState, width: u16, height: u16) ->
     let state = state.clone();
     terminal
         .draw(|frame| {
-            render(frame, &state);
+            render(frame, &state, &Theme::default());
         })
         .expect("render UI");
 
