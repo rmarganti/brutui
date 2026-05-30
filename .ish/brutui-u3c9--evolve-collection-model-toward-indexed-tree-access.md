@@ -1,7 +1,7 @@
 ---
 # brutui-u3c9
 title: Evolve collection model toward indexed tree access
-status: todo
+status: completed
 type: task
 priority: normal
 tags:
@@ -9,7 +9,7 @@ tags:
 - state
 - architecture
 created_at: 2026-05-30T17:24:12.753762Z
-updated_at: 2026-05-30T17:24:12.753762Z
+updated_at: 2026-05-30T17:51:54.353575Z
 parent: brutui-hrnz
 blocked_by:
 - brutui-0jl8
@@ -41,3 +41,22 @@ blocked_by:
 - `cargo clippy --all-targets --all-features -- -D warnings`
 - `cargo test --all-targets --all-features`
 - `ish check`
+
+
+
+## Implementation Notes
+
+- Reworked `src/collection/model.rs` so `Collection` now owns a flattened visible preorder plus indexed lookup structures for node id -> index, parent relationships, and ordered child ids.
+- Added `Collection::new(...)` plus helpers like `visible_nodes()`, `node(...)`, `node_index(...)`, `contains_node(...)`, `parent_id(...)`, and `child_ids(...)` so callers can use explicit collection read-model access instead of ad hoc linear scans.
+- Kept `CollectionNodeId` path-based and stable, and preserved the existing scanner-visible preorder by building indexes from the already-deterministic filesystem scan output rather than changing scan order.
+- Updated state navigation/selection, UI tree rendering, and runner target-path resolution to consume the new collection lookup helpers instead of reaching into a raw node vector.
+- Added focused indexed-model coverage in `src/collection/model.rs` and updated scanner/metadata tests to assert against the visible-node API.
+
+## Verification
+
+- `./scripts/validate.sh`
+
+## Notes For Follow-on Work
+
+- The current `visible_nodes()` preorder remains the source for rendering and sequential navigation, while `parent_id(...)` and `child_ids(...)` provide the minimal indexed tree seams needed for future collapse/filter/selection-preservation work without re-scanning the filesystem.
+- If later work needs richer per-node state (collapse flags, badges, cached visibility), extend `Collection` around the existing indexed maps rather than reintroducing repeated `Vec` scans in state/UI code.

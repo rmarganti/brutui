@@ -61,7 +61,7 @@ fn malformed_request_metadata_returns_diagnostics_without_hiding_the_request() {
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
     let broken_request = collection
-        .nodes
+        .visible_nodes()
         .iter()
         .find_map(|node| match node {
             CollectionNode::Request(request)

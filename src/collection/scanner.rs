@@ -61,11 +61,7 @@ pub fn scan_collection(
 
     scan_directory(&root, &root, &format, &mut nodes)?;
 
-    Ok(Collection {
-        root,
-        format,
-        nodes,
-    })
+    Ok(Collection::new(root, format, nodes))
 }
 
 fn scan_directory(

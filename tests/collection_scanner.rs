@@ -14,7 +14,7 @@ fn classic_scanner_builds_a_deterministic_filesystem_first_tree() {
     let collection = scan_collection(&fixture.root, CollectionFormat::ClassicJson)
         .expect("scan classic fixture");
 
-    let summary = node_summary(&collection.nodes);
+    let summary = node_summary(collection.visible_nodes());
     assert_eq!(
         summary,
         vec![
@@ -57,9 +57,15 @@ fn classic_scanner_builds_a_deterministic_filesystem_first_tree() {
         ]
     );
 
-    assert_eq!(collection.nodes[0].display_name(), "sample-classic");
-    assert_eq!(collection.nodes[1].display_name(), "broken");
-    assert_eq!(collection.nodes[2].display_name(), "malformed.bru");
+    assert_eq!(
+        collection.visible_nodes()[0].display_name(),
+        "sample-classic"
+    );
+    assert_eq!(collection.visible_nodes()[1].display_name(), "broken");
+    assert_eq!(
+        collection.visible_nodes()[2].display_name(),
+        "malformed.bru"
+    );
     assert!(!summary.iter().any(|(_, relative_path, _)| {
         relative_path
             .as_ref()
@@ -81,7 +87,7 @@ fn open_collection_scanner_includes_yaml_requests_but_not_root_or_environment_fi
     let collection =
         scan_collection(&fixture.root, CollectionFormat::OpenCollectionYaml).expect("scan open");
 
-    let summary = node_summary(&collection.nodes);
+    let summary = node_summary(collection.visible_nodes());
     assert_eq!(
         summary,
         vec![
@@ -117,7 +123,7 @@ fn open_collection_scanner_includes_yaml_requests_but_not_root_or_environment_fi
     assert!(summary.iter().all(|(_, relative_path, _)| {
         relative_path.as_ref() != Some(&PathBuf::from("opencollection.yml"))
     }));
-    assert!(collection.nodes.iter().any(|node| {
+    assert!(collection.visible_nodes().iter().any(|node| {
         node.id() == CollectionNodeId::Request(PathBuf::from("requests/auth/login.yml"))
     }));
 

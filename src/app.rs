@@ -531,7 +531,7 @@ mod tests {
                     .session()
                     .expect("session")
                     .collection()
-                    .root
+                    .root()
                     .canonicalize()
                     .expect("canonical loaded root"),
                 explicit.canonicalize().expect("canonical explicit root")
@@ -566,7 +566,7 @@ mod tests {
                     .session()
                     .expect("session")
                     .collection()
-                    .root
+                    .root()
                     .canonicalize()
                     .expect("canonical loaded root"),
                 cwd_collection.canonicalize().expect("canonical cwd root")
@@ -603,7 +603,7 @@ mod tests {
                     .session()
                     .expect("session")
                     .collection()
-                    .root
+                    .root()
                     .canonicalize()
                     .expect("canonical loaded root"),
                 configured

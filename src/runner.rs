@@ -329,11 +329,9 @@ fn resolve_target_path(
     target: &CollectionNodeId,
 ) -> Result<PathBuf, RunCommandBuildError> {
     match target {
-        CollectionNodeId::Root => Ok(collection.root.clone()),
+        CollectionNodeId::Root => Ok(collection.root().to_path_buf()),
         CollectionNodeId::Folder(_) | CollectionNodeId::Request(_) => collection
-            .nodes
-            .iter()
-            .find(|node| node.id() == *target)
+            .node(target)
             .map(|node| node.path().to_path_buf())
             .ok_or_else(|| RunCommandBuildError::UnknownSelection(target.clone())),
     }
@@ -370,14 +368,14 @@ mod tests {
 
     #[test]
     fn missing_non_root_selection_is_reported() {
-        let collection = Collection {
-            root: PathBuf::from("/tmp/demo"),
-            format: CollectionFormat::ClassicJson,
-            nodes: vec![CollectionNode::Root(RootNode {
+        let collection = Collection::new(
+            PathBuf::from("/tmp/demo"),
+            CollectionFormat::ClassicJson,
+            vec![CollectionNode::Root(RootNode {
                 path: PathBuf::from("/tmp/demo"),
                 display_name: "demo".to_string(),
             })],
-        };
+        );
 
         let error = build_run_command(
             "/usr/bin/bru",

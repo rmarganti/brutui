@@ -127,7 +127,7 @@ fn render_collection_tree(frame: &mut Frame, area: Rect, session: &SessionState)
     let selected_node = session.selected_node_id();
     let items = session
         .collection()
-        .nodes
+        .visible_nodes()
         .iter()
         .map(|node| {
             let prefix = match node {

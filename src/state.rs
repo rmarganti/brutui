@@ -236,7 +236,7 @@ impl AppState {
         environments: Vec<EnvironmentOption>,
     ) -> Result<(), StateError> {
         let selected_node = collection
-            .nodes
+            .visible_nodes()
             .first()
             .map(CollectionNode::id)
             .ok_or(StateError::EmptyCollection)?;
@@ -299,8 +299,12 @@ impl AppState {
         let current_index = session
             .selected_node_index()
             .ok_or(StateError::EmptyCollection)?;
-        let next_index = (current_index + 1).min(session.collection.nodes.len() - 1);
-        session.selected_node = session.collection.nodes[next_index].id();
+        let next_index = (current_index + 1).min(session.collection.node_count() - 1);
+        session.selected_node = session
+            .collection
+            .node_at(next_index)
+            .expect("next index should stay within collection bounds")
+            .id();
         Ok(())
     }
 
@@ -310,7 +314,11 @@ impl AppState {
             .selected_node_index()
             .ok_or(StateError::EmptyCollection)?;
         let previous_index = current_index.saturating_sub(1);
-        session.selected_node = session.collection.nodes[previous_index].id();
+        session.selected_node = session
+            .collection
+            .node_at(previous_index)
+            .expect("previous index should stay within collection bounds")
+            .id();
         Ok(())
     }
 
@@ -676,19 +684,11 @@ impl SessionState {
     }
 
     pub fn selected_node(&self) -> Option<&CollectionNode> {
-        self.collection
-            .nodes
-            .iter()
-            .find(|node| node.id() == self.selected_node)
+        self.collection.node(&self.selected_node)
     }
 
     pub fn select_node(&mut self, node_id: CollectionNodeId) -> Result<(), StateError> {
-        if self
-            .collection
-            .nodes
-            .iter()
-            .any(|node| node.id() == node_id)
-        {
+        if self.collection.contains_node(&node_id) {
             self.selected_node = node_id;
             Ok(())
         } else {
@@ -717,10 +717,7 @@ impl SessionState {
     }
 
     fn selected_node_index(&self) -> Option<usize> {
-        self.collection
-            .nodes
-            .iter()
-            .position(|node| node.id() == self.selected_node)
+        self.collection.node_index(&self.selected_node)
     }
 }
 
@@ -1044,11 +1041,11 @@ mod tests {
         let mut state = AppState::new();
         let error = state
             .open_collection(
-                Collection {
-                    root: PathBuf::from("/tmp/empty"),
-                    format: CollectionFormat::ClassicJson,
-                    nodes: Vec::new(),
-                },
+                Collection::new(
+                    PathBuf::from("/tmp/empty"),
+                    CollectionFormat::ClassicJson,
+                    Vec::new(),
+                ),
                 sample_environments(),
             )
             .expect_err("empty collections should be rejected");
@@ -1065,10 +1062,10 @@ mod tests {
     }
 
     fn sample_collection() -> Collection {
-        Collection {
-            root: PathBuf::from("/collections/demo"),
-            format: CollectionFormat::ClassicJson,
-            nodes: vec![
+        Collection::new(
+            PathBuf::from("/collections/demo"),
+            CollectionFormat::ClassicJson,
+            vec![
                 CollectionNode::Root(RootNode {
                     path: PathBuf::from("/collections/demo"),
                     display_name: "demo".to_string(),
@@ -1086,7 +1083,7 @@ mod tests {
                     metadata_diagnostics: Vec::new(),
                 }),
             ],
-        }
+        )
     }
 
     fn sample_environments() -> Vec<EnvironmentOption> {

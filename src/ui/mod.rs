@@ -159,10 +159,10 @@ mod tests {
     }
 
     fn sample_collection() -> Collection {
-        Collection {
-            root: PathBuf::from("/collections/demo"),
-            format: CollectionFormat::ClassicJson,
-            nodes: vec![
+        Collection::new(
+            PathBuf::from("/collections/demo"),
+            CollectionFormat::ClassicJson,
+            vec![
                 CollectionNode::Root(RootNode {
                     path: PathBuf::from("/collections/demo"),
                     display_name: "demo".to_string(),
@@ -188,7 +188,7 @@ mod tests {
                     }],
                 }),
             ],
-        }
+        )
     }
 
     fn discovered_collection(path: &str) -> DiscoveredCollection {
