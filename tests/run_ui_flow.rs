@@ -310,8 +310,9 @@ fn wait_for_output_lines(controller: &mut AppController, minimum_lines: usize) {
 fn render_to_string(state: &brutui::state::AppState, width: u16, height: u16) -> String {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("test terminal");
+    let mut state = state.clone();
     terminal
-        .draw(|frame| render(frame, state))
+        .draw(|frame| render(frame, &mut state))
         .expect("render UI");
 
     let buffer = terminal.backend().buffer();

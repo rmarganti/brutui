@@ -1,14 +1,14 @@
 use std::io::{self, Stdout};
 
 use crossterm::{
-    event::{KeyCode, KeyEvent, KeyEventKind},
+    event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
     style::{Modifier, Style, Stylize},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
@@ -88,8 +88,8 @@ pub fn handle_key_event(
     }
 }
 
-pub fn render(frame: &mut Frame, state: &AppState) {
-    match &state.session {
+pub fn render(frame: &mut Frame, state: &mut AppState) {
+    match &mut state.session {
         Some(session) => render_session(frame, session),
         None => render_startup(frame, &state.startup),
     }
@@ -189,6 +189,34 @@ fn handle_session_keys(state: &mut AppState, event: KeyEvent) -> Result<UiEventR
         KeyCode::Down | KeyCode::Char('j') if focus == FocusPane::CollectionTree => {
             state.move_selection_next()?
         }
+        KeyCode::Up | KeyCode::Char('k') if focus == FocusPane::Output => {
+            state.scroll_output_by(-1)?
+        }
+        KeyCode::Down | KeyCode::Char('j') if focus == FocusPane::Output => {
+            state.scroll_output_by(1)?
+        }
+        KeyCode::PageUp if focus == FocusPane::Output => {
+            state.scroll_output_by(-output_half_page_height(state))?
+        }
+        KeyCode::PageDown if focus == FocusPane::Output => {
+            state.scroll_output_by(output_half_page_height(state))?
+        }
+        KeyCode::Char('u')
+            if focus == FocusPane::Output && event.modifiers.contains(KeyModifiers::CONTROL) =>
+        {
+            state.scroll_output_by(-output_half_page_height(state))?
+        }
+        KeyCode::Char('d')
+            if focus == FocusPane::Output && event.modifiers.contains(KeyModifiers::CONTROL) =>
+        {
+            state.scroll_output_by(output_half_page_height(state))?
+        }
+        KeyCode::Home | KeyCode::Char('g') if focus == FocusPane::Output => {
+            state.scroll_output_to_top()?
+        }
+        KeyCode::End | KeyCode::Char('G') if focus == FocusPane::Output => {
+            state.scroll_output_to_bottom()?
+        }
         _ => {}
     }
 
@@ -276,7 +304,7 @@ fn render_collection_picker(frame: &mut Frame, picker: &crate::state::Collection
     );
 }
 
-fn render_session(frame: &mut Frame, session: &SessionState) {
+fn render_session(frame: &mut Frame, session: &mut SessionState) {
     let root_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(1)])
@@ -417,7 +445,7 @@ fn render_details_pane(frame: &mut Frame, area: Rect, session: &SessionState) {
     );
 }
 
-fn render_output_pane(frame: &mut Frame, area: Rect, session: &SessionState) {
+fn render_output_pane(frame: &mut Frame, area: Rect, session: &mut SessionState) {
     let result_count = session.response_result_count();
     let result_position = if result_count == 0 {
         "no result".to_string()
@@ -434,15 +462,24 @@ fn render_output_pane(frame: &mut Frame, area: Rect, session: &SessionState) {
         ResponseTab::Tests => "Tests",
     };
     let title = format!("Output: Response viewer ({tab}, {result_position})");
-    let lines = current_tab_text(session)
+    let text = current_tab_text(session);
+    let lines = text
         .lines()
         .map(|line| Line::from(line.to_string()))
         .collect::<Vec<_>>();
+    let inner = area.inner(Margin {
+        vertical: 1,
+        horizontal: 1,
+    });
+    let content_height = wrapped_visual_line_count(&text, inner.width);
+    session.set_output_scroll_metrics(inner.height as usize, content_height);
+    let vertical_offset = session.scroll.output.vertical_offset.min(u16::MAX as usize) as u16;
 
     frame.render_widget(
         Paragraph::new(lines)
             .block(focused_block(&title, session.focus == FocusPane::Output))
-            .wrap(Wrap { trim: false }),
+            .wrap(Wrap { trim: false })
+            .scroll((vertical_offset, 0)),
         area,
     );
 }
@@ -529,6 +566,33 @@ fn render_modal(frame: &mut Frame, session: &SessionState) {
             );
         }
     }
+}
+
+fn output_half_page_height(state: &AppState) -> isize {
+    state
+        .session
+        .as_ref()
+        .map(|session| (session.scroll.output.viewport_height / 2).max(1) as isize)
+        .unwrap_or(1)
+}
+
+fn wrapped_visual_line_count(text: &str, width: u16) -> usize {
+    let width = width as usize;
+    if width == 0 {
+        return 0;
+    }
+
+    let line_count = text.lines().count();
+    if line_count == 0 {
+        return 1;
+    }
+
+    text.lines()
+        .map(|line| {
+            let width_chars = line.chars().count();
+            width_chars.div_ceil(width).max(1)
+        })
+        .sum()
 }
 
 fn selected_environment_label(session: &SessionState) -> &str {
@@ -982,10 +1046,10 @@ mod tests {
         for (width, height) in [(70, 18), (120, 36)] {
             let backend = TestBackend::new(width, height);
             let mut terminal = Terminal::new(backend).expect("test terminal");
-            let state = loaded_state();
+            let mut state = loaded_state();
 
             terminal
-                .draw(|frame| render(frame, &state))
+                .draw(|frame| render(frame, &mut state))
                 .expect("render UI");
 
             let buffer = terminal.backend().buffer();
@@ -1005,7 +1069,7 @@ mod tests {
             CollectionNodeId::Request(PathBuf::from("users/list.bru"));
 
         terminal
-            .draw(|frame| render(frame, &state))
+            .draw(|frame| render(frame, &mut state))
             .expect("render UI");
 
         let rendered = buffer_string(terminal.backend().buffer());

@@ -76,7 +76,7 @@ impl AppBootstrap {
                     controller.pump_run_events()?;
                     terminal
                         .terminal_mut()
-                        .draw(|frame| render(frame, &controller.state))
+                        .draw(|frame| render(frame, &mut controller.state))
                         .context("failed to render application UI")?;
                 }
             }

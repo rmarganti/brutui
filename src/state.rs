@@ -57,6 +57,7 @@ pub struct SessionState {
     pub raw_output: Vec<OutputLine>,
     pub latest_report_path: Option<PathBuf>,
     pub completed_run: Option<CompletedRun>,
+    pub scroll: PaneScrollState,
 }
 
 // ----------------------------------------------------------------
@@ -107,6 +108,32 @@ pub struct OutputLine {
 pub enum OutputStream {
     Stdout,
     Stderr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PaneScrollState {
+    pub output: ScrollState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ScrollState {
+    pub vertical_offset: usize,
+    pub viewport_height: usize,
+    pub content_height: usize,
+}
+
+impl ScrollState {
+    pub fn max_vertical_offset(&self) -> usize {
+        self.content_height.saturating_sub(self.viewport_height)
+    }
+
+    pub fn clamp(&mut self) {
+        self.vertical_offset = self.vertical_offset.min(self.max_vertical_offset());
+    }
+
+    pub fn reset(&mut self) {
+        self.vertical_offset = 0;
+    }
 }
 
 // ----------------------------------------------------------------
@@ -208,6 +235,7 @@ impl AppState {
             raw_output: Vec::new(),
             latest_report_path: None,
             completed_run: None,
+            scroll: PaneScrollState::default(),
         });
 
         Ok(())
@@ -360,6 +388,7 @@ impl AppState {
         session.selected_result_index = 0;
         session.raw_output.clear();
         session.completed_run = None;
+        session.reset_output_scroll();
         Ok(target)
     }
 
@@ -402,24 +431,53 @@ impl AppState {
         session.run = RunState::Idle;
         session.response_tab = ResponseTab::Body;
         session.selected_result_index = 0;
+        session.reset_output_scroll();
         Ok(())
     }
 
     pub fn set_response_tab(&mut self, tab: ResponseTab) -> Result<(), StateError> {
-        self.session_mut()?.response_tab = tab;
+        let session = self.session_mut()?;
+        if session.response_tab != tab {
+            session.response_tab = tab;
+            session.reset_output_scroll();
+        }
         Ok(())
     }
 
     pub fn select_previous_result(&mut self) -> Result<(), StateError> {
         let session = self.session_mut()?;
+        let previous_index = session.selected_result_index;
         session.selected_result_index = session.selected_result_index.saturating_sub(1);
+        if session.selected_result_index != previous_index {
+            session.reset_output_scroll();
+        }
         Ok(())
     }
 
     pub fn select_next_result(&mut self) -> Result<(), StateError> {
         let session = self.session_mut()?;
+        let previous_index = session.selected_result_index;
         let max = session.response_result_count().saturating_sub(1);
         session.selected_result_index = (session.selected_result_index + 1).min(max);
+        if session.selected_result_index != previous_index {
+            session.reset_output_scroll();
+        }
+        Ok(())
+    }
+
+    pub fn scroll_output_by(&mut self, delta: isize) -> Result<(), StateError> {
+        self.session_mut()?.scroll_output_by(delta);
+        Ok(())
+    }
+
+    pub fn scroll_output_to_top(&mut self) -> Result<(), StateError> {
+        self.session_mut()?.scroll.output.reset();
+        Ok(())
+    }
+
+    pub fn scroll_output_to_bottom(&mut self) -> Result<(), StateError> {
+        let session = self.session_mut()?;
+        session.scroll.output.vertical_offset = session.scroll.output.max_vertical_offset();
         Ok(())
     }
 
@@ -525,6 +583,26 @@ impl SessionState {
             .nodes
             .iter()
             .find(|node| node.id() == self.selected_node)
+    }
+
+    pub fn set_output_scroll_metrics(&mut self, viewport_height: usize, content_height: usize) {
+        self.scroll.output.viewport_height = viewport_height;
+        self.scroll.output.content_height = content_height;
+        self.scroll.output.clamp();
+    }
+
+    fn reset_output_scroll(&mut self) {
+        self.scroll.output.reset();
+    }
+
+    fn scroll_output_by(&mut self, delta: isize) {
+        let output = &mut self.scroll.output;
+        output.vertical_offset = if delta.is_negative() {
+            output.vertical_offset.saturating_sub(delta.unsigned_abs())
+        } else {
+            output.vertical_offset.saturating_add(delta as usize)
+        };
+        output.clamp();
     }
 
     fn selected_node_index(&self) -> Option<usize> {
