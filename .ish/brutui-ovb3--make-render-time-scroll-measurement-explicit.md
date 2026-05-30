@@ -1,7 +1,7 @@
 ---
 # brutui-ovb3
 title: Make render-time scroll measurement explicit
-status: todo
+status: completed
 type: task
 priority: normal
 tags:
@@ -9,7 +9,7 @@ tags:
 - state
 - testability
 created_at: 2026-05-30T17:23:32.843643Z
-updated_at: 2026-05-30T17:23:32.843643Z
+updated_at: 2026-05-30T17:55:52.886196Z
 parent: brutui-hrnz
 blocked_by:
 - brutui-0f8d
@@ -41,3 +41,14 @@ The current render path mutates session state: `render(frame, state: &mut AppSta
 - `cargo clippy --all-targets --all-features -- -D warnings`
 - `cargo test --all-targets --all-features`
 - `ish check`
+
+## Implementation Notes
+
+- Changed `ui::render` to take `&AppState` and return explicit `ViewMeasurements` instead of mutating session scroll metrics during draw.
+- Added `AppState::apply_view_measurements(...)` and `SessionState::apply_output_scroll_measurements(...)` so the app loop applies viewport/content measurements immediately after each draw, keeping render pure while preserving the existing scroll model.
+- Updated the terminal draw loop in `src/app.rs` to capture render measurements for both startup and loaded states, then apply them after the frame is rendered.
+- Added a state-level clamp test for shrinking output content/viewport metrics and a UI test proving render no longer mutates stored scroll measurements until the controller applies the returned values.
+
+## Verification
+
+- `./scripts/validate.sh`

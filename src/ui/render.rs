@@ -8,15 +8,21 @@ use ratatui::{
 
 use crate::{
     collection::model::{CollectionNode, CollectionNodeId},
-    state::{AppState, FocusPane, ModalState, ResponseTab, SessionState, StartupState},
+    state::{
+        AppState, FocusPane, ModalState, OutputScrollMeasurements, ResponseTab, SessionState,
+        StartupState, ViewMeasurements,
+    },
 };
 
 use super::text::current_tab_text;
 
-pub fn render(frame: &mut Frame, state: &mut AppState) {
-    match state.session_for_render() {
+pub fn render(frame: &mut Frame, state: &AppState) -> ViewMeasurements {
+    match state.session() {
         Some(session) => render_session(frame, session),
-        None => render_startup(frame, state.startup()),
+        None => {
+            render_startup(frame, state.startup());
+            ViewMeasurements::default()
+        }
     }
 }
 
@@ -101,7 +107,7 @@ fn render_collection_picker(frame: &mut Frame, picker: &crate::state::Collection
     );
 }
 
-fn render_session(frame: &mut Frame, session: &mut SessionState) {
+fn render_session(frame: &mut Frame, session: &SessionState) -> ViewMeasurements {
     let root_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(1)])
@@ -118,9 +124,13 @@ fn render_session(frame: &mut Frame, session: &mut SessionState) {
 
     render_collection_tree(frame, content_chunks[0], session);
     render_details_pane(frame, right_chunks[0], session);
-    render_output_pane(frame, right_chunks[1], session);
+    let output = render_output_pane(frame, right_chunks[1], session);
     render_footer(frame, root_chunks[1], session);
     render_modal(frame, session);
+
+    ViewMeasurements {
+        output: Some(output),
+    }
 }
 
 fn render_collection_tree(frame: &mut Frame, area: Rect, session: &SessionState) {
@@ -242,7 +252,11 @@ fn render_details_pane(frame: &mut Frame, area: Rect, session: &SessionState) {
     );
 }
 
-fn render_output_pane(frame: &mut Frame, area: Rect, session: &mut SessionState) {
+fn render_output_pane(
+    frame: &mut Frame,
+    area: Rect,
+    session: &SessionState,
+) -> OutputScrollMeasurements {
     let result_count = session.response_result_count();
     let result_position = if result_count == 0 {
         "no result".to_string()
@@ -269,7 +283,10 @@ fn render_output_pane(frame: &mut Frame, area: Rect, session: &mut SessionState)
         horizontal: 1,
     });
     let content_height = wrapped_visual_line_count(&text, inner.width);
-    session.set_output_scroll_metrics(inner.height as usize, content_height);
+    let measurements = OutputScrollMeasurements {
+        viewport_height: inner.height as usize,
+        content_height,
+    };
     let vertical_offset = session
         .scroll()
         .output
@@ -283,6 +300,8 @@ fn render_output_pane(frame: &mut Frame, area: Rect, session: &mut SessionState)
             .scroll((vertical_offset, 0)),
         area,
     );
+
+    measurements
 }
 
 fn render_footer(frame: &mut Frame, area: Rect, session: &SessionState) {

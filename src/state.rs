@@ -128,6 +128,17 @@ pub struct ScrollState {
     pub content_height: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ViewMeasurements {
+    pub output: Option<OutputScrollMeasurements>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutputScrollMeasurements {
+    pub viewport_height: usize,
+    pub content_height: usize,
+}
+
 impl ScrollState {
     pub fn max_vertical_offset(&self) -> usize {
         self.content_height.saturating_sub(self.viewport_height)
@@ -212,8 +223,10 @@ impl AppState {
         self.session.as_ref()
     }
 
-    pub(crate) fn session_for_render(&mut self) -> Option<&mut SessionState> {
-        self.session.as_mut()
+    pub fn apply_view_measurements(&mut self, measurements: ViewMeasurements) {
+        if let (Some(session), Some(output)) = (&mut self.session, measurements.output) {
+            session.apply_output_scroll_measurements(output);
+        }
     }
 
     // ----------------------------------------------------------------
@@ -696,9 +709,9 @@ impl SessionState {
         }
     }
 
-    pub fn set_output_scroll_metrics(&mut self, viewport_height: usize, content_height: usize) {
-        self.scroll.output.viewport_height = viewport_height;
-        self.scroll.output.content_height = content_height;
+    pub fn apply_output_scroll_measurements(&mut self, measurements: OutputScrollMeasurements) {
+        self.scroll.output.viewport_height = measurements.viewport_height;
+        self.scroll.output.content_height = measurements.content_height;
         self.scroll.output.clamp();
     }
 
@@ -769,8 +782,8 @@ mod tests {
     use crate::runner::{RunCompletion, RunOutcome, RunToolError, RunToolErrorKind};
 
     use super::{
-        AppState, CompletedRunStatus, FocusPane, ModalState, OutputStream, ResponseTab, RunState,
-        StartupState, StateError,
+        AppState, CompletedRunStatus, FocusPane, ModalState, OutputScrollMeasurements,
+        OutputStream, ResponseTab, RunState, StartupState, StateError, ViewMeasurements,
     };
 
     #[test]
@@ -1034,6 +1047,48 @@ mod tests {
             Some(PathBuf::from("/tmp/latest-report.json"))
         );
         assert_eq!(session.response_tab, ResponseTab::Body);
+    }
+
+    #[test]
+    fn applying_view_measurements_clamps_output_scroll_offsets() {
+        let mut state = AppState::new();
+        state
+            .open_collection(sample_collection(), sample_environments())
+            .expect("open collection");
+
+        state.apply_view_measurements(ViewMeasurements {
+            output: Some(OutputScrollMeasurements {
+                viewport_height: 4,
+                content_height: 20,
+            }),
+        });
+        state.scroll_output_to_bottom().expect("scroll to bottom");
+
+        state.apply_view_measurements(ViewMeasurements {
+            output: Some(OutputScrollMeasurements {
+                viewport_height: 5,
+                content_height: 6,
+            }),
+        });
+
+        assert_eq!(
+            state
+                .session()
+                .expect("session")
+                .scroll()
+                .output
+                .vertical_offset,
+            1
+        );
+        assert_eq!(
+            state
+                .session()
+                .expect("session")
+                .scroll()
+                .output
+                .max_vertical_offset(),
+            1
+        );
     }
 
     #[test]

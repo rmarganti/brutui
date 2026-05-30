@@ -103,17 +103,25 @@ impl AppBootstrap {
         loop {
             match &mut runtime {
                 AppRuntime::Startup { state, .. } => {
+                    let mut measurements = None;
                     terminal
                         .terminal_mut()
-                        .draw(|frame| render(frame, state))
+                        .draw(|frame| measurements = Some(render(frame, state)))
                         .context("failed to render startup UI")?;
+                    state.apply_view_measurements(
+                        measurements.expect("startup render should produce measurements"),
+                    );
                 }
                 AppRuntime::Loaded(controller) => {
                     controller.pump_run_events()?;
+                    let mut measurements = None;
                     terminal
                         .terminal_mut()
-                        .draw(|frame| render(frame, &mut controller.state))
+                        .draw(|frame| measurements = Some(render(frame, &controller.state)))
                         .context("failed to render application UI")?;
+                    controller.state.apply_view_measurements(
+                        measurements.expect("loaded render should produce measurements"),
+                    );
                 }
             }
 

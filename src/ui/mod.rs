@@ -113,10 +113,12 @@ mod tests {
         for (width, height) in [(70, 18), (120, 36)] {
             let backend = TestBackend::new(width, height);
             let mut terminal = Terminal::new(backend).expect("test terminal");
-            let mut state = loaded_state();
+            let state = loaded_state();
 
             terminal
-                .draw(|frame| render(frame, &mut state))
+                .draw(|frame| {
+                    render(frame, &state);
+                })
                 .expect("render UI");
 
             let buffer = terminal.backend().buffer();
@@ -125,6 +127,58 @@ mod tests {
             assert!(rendered.contains("Details"));
             assert!(rendered.contains("Output"));
         }
+    }
+
+    #[test]
+    fn render_does_not_mutate_scroll_measurements_until_controller_applies_them() {
+        let backend = TestBackend::new(120, 36);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        let state = loaded_state();
+
+        assert_eq!(
+            state
+                .session()
+                .expect("session")
+                .scroll()
+                .output
+                .viewport_height,
+            0
+        );
+        assert_eq!(
+            state
+                .session()
+                .expect("session")
+                .scroll()
+                .output
+                .content_height,
+            0
+        );
+
+        terminal
+            .draw(|frame| {
+                let measurements = render(frame, &state);
+                assert!(measurements.output.is_some());
+            })
+            .expect("render UI");
+
+        assert_eq!(
+            state
+                .session()
+                .expect("session")
+                .scroll()
+                .output
+                .viewport_height,
+            0
+        );
+        assert_eq!(
+            state
+                .session()
+                .expect("session")
+                .scroll()
+                .output
+                .content_height,
+            0
+        );
     }
 
     #[test]
@@ -137,7 +191,9 @@ mod tests {
             .expect("select request node");
 
         terminal
-            .draw(|frame| render(frame, &mut state))
+            .draw(|frame| {
+                render(frame, &state);
+            })
             .expect("render UI");
 
         let rendered = buffer_string(terminal.backend().buffer());
