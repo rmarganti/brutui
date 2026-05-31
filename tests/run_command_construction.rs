@@ -30,6 +30,7 @@ fn root_run_uses_recursive_collection_target_without_env() {
     assert!(!command.args.iter().any(|arg| arg == "--env"));
     assert_reporter_json_arg(&command.args, &command.report_path);
     assert_report_path_is_temp(&fixture.root, &command.report_path);
+    assert_eq!(command.working_dir, fixture.root);
     fixture.assert_unchanged();
 }
 
@@ -60,6 +61,7 @@ fn folder_run_is_recursive_and_request_run_is_not() {
         fixture.root.join("users").to_string_lossy()
     );
     assert!(folder_command.args.contains(&"-r".to_string()));
+    assert_eq!(folder_command.working_dir, fixture.root);
 
     assert_eq!(request_command.args[0], "run");
     assert_eq!(
@@ -67,6 +69,7 @@ fn folder_run_is_recursive_and_request_run_is_not() {
         fixture.root.join("users/list.bru").to_string_lossy()
     );
     assert!(!request_command.args.contains(&"-r".to_string()));
+    assert_eq!(request_command.working_dir, fixture.root);
 
     fixture.assert_unchanged();
 }
@@ -97,6 +100,7 @@ fn selected_environment_is_mapped_to_bru_env_flag() {
     assert_eq!(command.args[env_index + 1], "staging");
     assert_reporter_json_arg(&command.args, &command.report_path);
     assert_report_path_is_temp(&fixture.root, &command.report_path);
+    assert_eq!(command.working_dir, fixture.root);
 }
 
 fn assert_reporter_json_arg(args: &[String], report_path: &std::path::Path) {

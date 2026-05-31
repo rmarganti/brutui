@@ -31,6 +31,7 @@ pub fn build_run_command(
     Ok(RunCommand {
         program: program.into(),
         args,
+        working_dir: collection.root().to_path_buf(),
         report_path,
     })
 }

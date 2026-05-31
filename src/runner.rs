@@ -17,6 +17,7 @@ pub use command::build_run_command;
 pub struct RunCommand {
     pub program: PathBuf,
     pub args: Vec<String>,
+    pub working_dir: PathBuf,
     pub report_path: PathBuf,
 }
 

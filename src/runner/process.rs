@@ -16,6 +16,7 @@ pub(crate) fn start(
 ) -> Result<RunEventReceiver, RunStartError> {
     let mut child = Command::new(&command.program)
         .args(&command.args)
+        .current_dir(&command.working_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
