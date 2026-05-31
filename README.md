@@ -41,6 +41,14 @@ cargo run -- /path/to/collection
 
 Brutui recognizes collection roots that contain either `bruno.json` or `opencollection.yml`.
 
+## Initializing a config file
+
+Generate a config file at the platform default location with all keys shown as commented-out annotated defaults:
+
+```bash
+brutui init
+```
+
 ## Bruno executable resolution
 
 Brutui resolves `bru` in this order:
@@ -51,9 +59,35 @@ Brutui resolves `bru` in this order:
 
 ## Configuration
 
-Brutui uses a TOML config file in the platform-appropriate app config directory (`dev/rmarganti/brutui/config.toml` via the Rust `directories` crate).
+Brutui uses a TOML config file at `~/.config/brutui/config.toml`.
+
+Run `brutui init` to generate a config file at the default location with every supported key annotated and commented out.
 
 Use `BRUTUI_CONFIG=/path/to/config.toml` to point Brutui at a different config file.
+
+### Supported keys
+
+| Key               | Type           | Description                                                         |
+| ----------------- | -------------- | ------------------------------------------------------------------- |
+| `collection_dirs` | array of paths | Directories to scan for Bruno collections on startup                |
+| `bru_path`        | path           | Explicit path to the `bru` binary (overridden by `BRUTUI_BRU_PATH`) |
+| `[theme.*]`       | style sections | TUI color and style overrides (see below)                           |
+
+### Theme
+
+Each theme section (`base`, `panel_border`, `focused_panel_border`, `selected_item`, `focused_selected_item`, `emphasized_text`) accepts these optional fields:
+
+| Field        | Type  | Description      |
+| ------------ | ----- | ---------------- |
+| `fg`         | color | Foreground color |
+| `bg`         | color | Background color |
+| `bold`       | bool  | Bold text        |
+| `italic`     | bool  | Italic text      |
+| `underlined` | bool  | Underlined text  |
+| `reversed`   | bool  | Swap fg/bg       |
+| `dim`        | bool  | Dim text         |
+
+Colors may be named terminal colors (`black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `gray`, `dark_gray`, `light_red`, `light_green`, `light_yellow`, `light_blue`, `light_magenta`, `light_cyan`, `white`) or RGB hex values in `#RRGGBB` format. Invalid color names are reported as configuration errors on startup.
 
 Example config:
 
@@ -66,16 +100,16 @@ collection_dirs = [
 bru_path = "/opt/homebrew/bin/bru"
 
 # Optional TUI theme overrides. Omitted fields keep their defaults.
-[theme]
-focused_panel_border = { fg = "yellow" }
-selected_item = { reversed = true }
-focused_selected_item = { fg = "#f0f0f0", reversed = true, bold = true }
-emphasized_text = { bold = true }
+[theme.focused_panel_border]
+fg = "yellow"
+
+[theme.focused_selected_item]
+fg = "#f0f0f0"
+bold = true
+reversed = true
 ```
 
-A copy is also provided at [`config/brutui.example.toml`](config/brutui.example.toml).
-
-Theme colors may be named terminal colors (such as `yellow`, `cyan`, or `light_blue`) or RGB hex values in `#RRGGBB` format. Invalid color names are reported as configuration errors on startup.
+A fully annotated template is also provided at [`config/brutui.example.toml`](config/brutui.example.toml).
 
 ## Keyboard usage
 
