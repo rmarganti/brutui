@@ -94,11 +94,11 @@ impl Default for ThemeConfig {
         Self {
             base: ThemeStyleConfig::default(),
             panel_border: ThemeStyleConfig {
-                fg: Some(ThemeColor::new_unchecked("black")),
+                fg: Some(ThemeColor::new_unchecked("dark_gray")),
                 ..ThemeStyleConfig::default()
             },
             focused_panel_border: ThemeStyleConfig {
-                fg: Some(ThemeColor::new_unchecked("yellow")),
+                fg: Some(ThemeColor::new_unchecked("cyan")),
                 ..ThemeStyleConfig::default()
             },
             selected_item: ThemeStyleConfig {
@@ -240,6 +240,17 @@ fn parse_hex_color(value: &str) -> Result<Color, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_panel_borders_match_ish_border_colors() {
+        let config = ThemeConfig::default();
+
+        assert_eq!(config.panel_border.fg.unwrap().color(), Color::DarkGray);
+        assert_eq!(
+            config.focused_panel_border.fg.unwrap().color(),
+            Color::Cyan
+        );
+    }
 
     #[test]
     fn partial_theme_config_overrides_individual_fields() {

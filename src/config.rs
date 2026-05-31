@@ -53,7 +53,7 @@ pub const INIT_CONFIG_TEMPLATE: &str = r#"# brutui configuration — generated b
 
 # Border of an unfocused panel.
 # [theme.panel_border]
-# fg = "black"  # default
+# fg = "dark_gray"  # default
 # bg =          # default: terminal default
 # bold = false
 # italic = false
@@ -63,7 +63,7 @@ pub const INIT_CONFIG_TEMPLATE: &str = r#"# brutui configuration — generated b
 
 # Border of the currently focused panel.
 # [theme.focused_panel_border]
-# fg = "yellow" # default
+# fg = "cyan" # default
 # bg =          # default: terminal default
 # bold = false
 # italic = false
